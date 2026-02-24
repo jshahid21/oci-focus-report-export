@@ -11,6 +11,79 @@ Syncs Oracle Cloud (OCI) cost and usage reports to an AWS S3 bucket. Runs automa
 | **AWS IAM user** | Access Key + Secret Key with S3 write permission |
 | **S3 bucket** | Created in AWS; the sync will create a folder inside it |
 
+## Prerequisites & OCI Authentication
+
+Before running `tofu apply`, OpenTofu needs to authenticate with OCI from your local machine. This is a one-time setup.
+
+> **Security note:** This API key is used exclusively by OpenTofu on your workstation to provision infrastructure (VMs, IAM policies, Vault secrets, etc.). Once deployed, the VM itself never uses an API key — it authenticates via **Instance Principals**, a keyless mechanism native to OCI. No credentials are stored in or passed to the cloud environment.
+
+### Step 1: Generate an OCI API Key Pair
+
+1. Log in to the [OCI Console](https://cloud.oracle.com).
+2. Click your **Profile** icon (top-right) → **My profile** → **API keys** → **Add API key**.
+3. Select **Generate API key pair**, download both the private and public keys, then click **Add**.
+4. OCI will display a configuration preview — keep this open for the next step.
+
+Alternatively, generate the key pair from your terminal:
+
+```bash
+mkdir -p ~/.oci
+openssl genrsa -out ~/.oci/oci_api_key.pem 2048
+chmod 600 ~/.oci/oci_api_key.pem
+openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pem
+```
+
+Upload the contents of `oci_api_key_public.pem` to the OCI Console under **Profile → API keys**.
+
+### Step 2: Configure `~/.oci/config`
+
+Create (or edit) `~/.oci/config` with the values from the OCI Console configuration preview:
+
+```ini
+[DEFAULT]
+user=ocid1.user.oc1..aaaa<your_user_ocid>
+fingerprint=aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
+tenancy=ocid1.tenancy.oc1..aaaa<your_tenancy_ocid>
+region=us-ashburn-1
+key_file=~/.oci/oci_api_key.pem
+```
+
+| Field | Where to find it |
+|-------|-----------------|
+| `user` | Profile → My profile → OCID |
+| `fingerprint` | Shown after uploading the public key |
+| `tenancy` | Profile → Tenancy → OCID |
+| `region` | Top-right region selector (e.g. `us-ashburn-1`) |
+| `key_file` | Path to your downloaded/generated private key |
+
+Set the correct permissions on the config file:
+
+```bash
+chmod 600 ~/.oci/config
+```
+
+Verify authentication is working:
+
+```bash
+oci iam region list
+```
+
+You should see a list of OCI regions. If you get an authentication error, double-check the `fingerprint` and `key_file` path.
+
+### Step 3: Deploy with OpenTofu
+
+With authentication confirmed, deploy the full stack:
+
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your OCI and AWS values
+tofu init
+tofu apply
+```
+
+---
+
 ## Quick Start (3 Steps)
 
 ### 1. Copy and edit the config file
