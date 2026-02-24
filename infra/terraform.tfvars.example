@@ -1,0 +1,46 @@
+# Copy to terraform.tfvars and fill in your values
+
+region       = "us-ashburn-1"
+tenancy_ocid = "ocid1.tenancy.oc1..aaaa..."
+
+create_compartment      = false
+existing_compartment_id = "ocid1.compartment.oc1..aaaa..."
+compartment_name        = ""
+
+create_vcn                 = true
+existing_vcn_id            = ""
+create_subnet              = true
+existing_subnet_id         = ""
+create_nat_gateway         = true
+existing_nat_gateway_id    = ""
+create_service_gateway     = true
+existing_service_gateway_id = ""
+
+# Bastion (default: true; requires create_vcn)
+# create_bastion              = true
+# bastion_ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# bastion_subnet_cidr         = "10.0.2.0/24"
+
+create_vault      = true
+existing_vault_id = ""
+create_key        = true
+existing_key_id   = ""
+
+create_aws_secrets                = true
+existing_aws_access_key_secret_id  = ""
+existing_aws_secret_key_secret_id  = ""
+aws_access_key = "AKIA..."
+aws_secret_key = "your-secret-here"
+
+enable_monitoring   = true
+alert_email_address = "you@example.com"
+
+# Optional
+# opc_password       = ""
+# instance_shape    = "VM.Standard.E6.Flex"
+# instance_ocpus    = 1
+# instance_memory_gb = 4
+
+aws_s3_bucket_name = "my-oci-cost-reports"
+aws_s3_prefix      = "oci-sync"
+aws_region         = "us-east-2"

@@ -1,0 +1,110 @@
+#cloud-config
+# OCI Cost Reports → AWS S3 sync. Bootstrap runs in background (OCI cloud-init timeout ~2min).
+
+ssh_pwauth: false
+disable_root: true
+package_update: false
+package_upgrade: false
+
+write_files:
+  - path: /root/.config/rclone/rclone.conf
+    owner: root:root
+    permissions: "0600"
+    content: |
+      [oci_usage]
+      type = oracleobjectstorage
+      provider = instance_principal_auth
+      namespace = bling
+      compartment = ${tenancy_ocid}
+      region = ${region}
+      no_check_bucket = true
+
+      [aws_s3]
+      type = s3
+      provider = AWS
+      region = ${aws_region}
+      env_auth = true
+
+  - path: /usr/local/bin/sync.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      export PATH="/usr/local/bin:$PATH"
+      export RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
+      export OCI_CLI_AUTH=instance_principal
+
+      OCI_BIN="$(command -v oci 2>/dev/null)"
+      [[ -z "$${OCI_BIN}" ]] && OCI_BIN="/usr/local/bin/oci"
+
+      alert_on_exit() {
+        local code=$$?
+        if [[ "$${code}" =~ ^[0-9]+$$ ]] && [[ $${code} -ne 0 ]] && [[ -n "${alert_topic_id}" ]]; then
+          $${OCI_BIN} ons message publish --topic-id "${alert_topic_id}" --auth instance_principal \
+            --body "Rclone sync FAILED (exit $${code}). Check /var/log/rclone-sync.log on $(hostname)" 2>/dev/null || true
+        fi
+      }
+      trap alert_on_exit EXIT
+
+      export AWS_ACCESS_KEY_ID=$($${OCI_BIN} secrets secret-bundle get --secret-id ${aws_access_key_secret_id} --auth instance_principal --query 'data."secret-bundle-content".content' --raw-output | base64 --decode | tr -d '\n\r\t ')
+      export AWS_SECRET_ACCESS_KEY=$($${OCI_BIN} secrets secret-bundle get --secret-id ${aws_secret_key_secret_id} --auth instance_principal --query 'data."secret-bundle-content".content' --raw-output | base64 --decode | tr -d '\n\r\t ')
+
+      /usr/local/bin/rclone sync oci_usage:${tenancy_ocid} aws_s3:${aws_s3_bucket_name}/${aws_s3_prefix} --log-file=/var/log/rclone-sync.log --checksum --s3-chunk-size 64M --s3-upload-concurrency 8 -v
+
+  - path: /usr/local/bin/bootstrap-oci-sync.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      exec > >(tee -a /var/log/cloud-init-bootstrap.log) 2>&1
+      echo "=== Bootstrap $(date) ==="
+
+      dnf install -y unzip jq python3-pip
+      pip3 install --break-system-packages --no-cache-dir oci-cli 2>/dev/null || pip3 install --no-cache-dir oci-cli 2>/dev/null || true
+
+      OCI_BIN="$(command -v oci 2>/dev/null)"
+      alert_on_bootstrap_fail() {
+        local code=$$?
+        if [[ "$${code}" =~ ^[0-9]+$$ ]] && [[ $${code} -ne 0 ]] && [[ -n "${alert_topic_id}" ]] && [[ -n "$${OCI_BIN}" ]]; then
+          $${OCI_BIN} ons message publish --topic-id "${alert_topic_id}" --auth instance_principal \
+            --body "Bootstrap FAILED (exit $${code}). Check /var/log/cloud-init-bootstrap.log on $(hostname)" 2>/dev/null || true
+        fi
+      }
+      trap alert_on_bootstrap_fail EXIT
+
+      ARCH=$(uname -m)
+      [[ "$${ARCH}" == "aarch64" ]] && RCLONE_ARCH=arm64 || RCLONE_ARCH=amd64
+      curl -sLO "https://downloads.rclone.org/rclone-current-linux-$${RCLONE_ARCH}.zip"
+      unzip -o rclone-current-linux-$${RCLONE_ARCH}.zip
+      cp rclone-*-linux-$${RCLONE_ARCH}/rclone /usr/local/bin/
+      chmod 755 /usr/local/bin/rclone
+
+      [ -n "${opc_password}" ] && echo "opc:${opc_password}" | chpasswd
+
+      echo "0 */6 * * * root /usr/local/bin/sync.sh >> /var/log/rclone-sync.log 2>&1" >> /etc/crontab
+
+      echo "=== Bootstrap done, first sync ==="
+      /usr/local/bin/sync.sh
+
+  - path: /etc/systemd/system/oci-sync-bootstrap.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=OCI Sync Bootstrap
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStartPre=/bin/sleep 90
+      ExecStart=/usr/local/bin/bootstrap-oci-sync.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl enable oci-sync-bootstrap.service
+  - ( systemctl start oci-sync-bootstrap.service & )
