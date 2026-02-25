@@ -17,14 +17,108 @@ Before running `tofu apply`, OpenTofu needs to authenticate with OCI from your l
 
 > **Security note:** This API key is used exclusively by OpenTofu on your workstation to provision infrastructure (VMs, IAM policies, Vault secrets, etc.). Once deployed, the VM itself never uses an API key — it authenticates via **Instance Principals**, a keyless mechanism native to OCI. No credentials are stored in or passed to the cloud environment.
 
+Pick your client environment and follow the relevant section:
+
+| Environment | Steps required |
+|-------------|---------------|
+| macOS | Steps 1, 2, 3 below |
+| Oracle Linux 8 / 9 | Steps 1, 2, 3 — with different install commands |
+| Windows | Steps 1, 2, 3 — with different install commands and config path |
+| OCI Cloud Shell | Skip Steps 1 & 2 — only install `tofu` binary, then Step 3 |
+
+---
+
+### macOS
+
+**Install OpenTofu:**
+
+```bash
+brew install opentofu
+```
+
+**Install OCI CLI** (needed for the verification step):
+
+```bash
+brew install oci-cli
+```
+
+---
+
+### Oracle Linux 8 / 9
+
+**Install OpenTofu:**
+
+```bash
+sudo dnf install -y yum-utils
+sudo yum-config-manager --add-repo https://packages.opentofu.org/opentofu/tofu/rpm_any/rpm_any.repo
+sudo dnf install -y tofu
+```
+
+**Install OCI CLI:**
+
+```bash
+sudo dnf install -y python3-pip
+pip3 install oci-cli
+```
+
+---
+
+### Windows
+
+**Install OpenTofu** — run in PowerShell:
+
+```powershell
+winget install OpenTofu.OpenTofu
+```
+
+Or download the MSI installer from [opentofu.org/docs/intro/install](https://opentofu.org/docs/intro/install/).
+
+**Install OCI CLI** — requires [Python from python.org](https://www.python.org/downloads/), then:
+
+```powershell
+pip install oci-cli
+```
+
+**Note on key generation:** Skip the `openssl` terminal commands below. On Windows, use the OCI Console to generate and download the key pair directly (Profile → My profile → API keys → Add API key → Generate API key pair). This is the simplest approach.
+
+**Config file path on Windows:** The OCI config lives at `C:\Users\<username>\.oci\config` instead of `~/.oci/config`. The format is identical. No `chmod` is needed — Windows handles file permissions differently.
+
+---
+
+### OCI Cloud Shell
+
+Cloud Shell is pre-authenticated as your OCI Console user. **Skip Steps 1 and 2 entirely.**
+
+The OCI CLI is pre-installed. You only need to install OpenTofu:
+
+```bash
+# Download and install the tofu binary to your home directory (persists across sessions)
+curl -sLO https://github.com/opentofu/opentofu/releases/download/v1.9.0/tofu_1.9.0_linux_amd64.zip
+unzip tofu_1.9.0_linux_amd64.zip tofu
+mkdir -p ~/bin && mv tofu ~/bin/
+export PATH="$HOME/bin:$PATH"
+```
+
+Add the export to `~/.bashrc` so it persists:
+
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+```
+
+Then skip ahead to [Step 3: Deploy with OpenTofu](#step-3-deploy-with-opentofu).
+
+---
+
 ### Step 1: Generate an OCI API Key Pair
+
+> **Skip this step if using OCI Cloud Shell.**
 
 1. Log in to the [OCI Console](https://cloud.oracle.com).
 2. Click your **Profile** icon (top-right) → **My profile** → **API keys** → **Add API key**.
 3. Select **Generate API key pair**, download both the private and public keys, then click **Add**.
 4. OCI will display a configuration preview — keep this open for the next step.
 
-Alternatively, generate the key pair from your terminal:
+Alternatively (macOS / Linux only), generate the key pair from your terminal:
 
 ```bash
 mkdir -p ~/.oci
@@ -35,9 +129,11 @@ openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pe
 
 Upload the contents of `oci_api_key_public.pem` to the OCI Console under **Profile → API keys**.
 
-### Step 2: Configure `~/.oci/config`
+### Step 2: Configure the OCI Config File
 
-Create (or edit) `~/.oci/config` with the values from the OCI Console configuration preview:
+> **Skip this step if using OCI Cloud Shell.**
+
+Create (or edit) `~/.oci/config` (macOS / Linux) or `C:\Users\<username>\.oci\config` (Windows) with the values from the OCI Console configuration preview:
 
 ```ini
 [DEFAULT]
@@ -56,7 +152,7 @@ key_file=~/.oci/oci_api_key.pem
 | `region` | Top-right region selector (e.g. `us-ashburn-1`) |
 | `key_file` | Path to your downloaded/generated private key |
 
-Set the correct permissions on the config file:
+On macOS / Linux, set the correct permissions:
 
 ```bash
 chmod 600 ~/.oci/config
