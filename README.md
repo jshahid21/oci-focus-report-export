@@ -93,10 +93,10 @@ The OCI CLI is pre-installed. You only need to install OpenTofu:
 
 ```bash
 # Download and install the tofu binary to your home directory (persists across sessions)
-ARCH=$(uname -m)
-[[ "$ARCH" == "aarch64" ]] && TOFU_ARCH=arm64 || TOFU_ARCH=amd64
-curl -sLO "https://github.com/opentofu/opentofu/releases/download/v1.9.0/tofu_1.9.0_linux_${TOFU_ARCH}.zip"
-unzip "tofu_1.9.0_linux_${TOFU_ARCH}.zip" tofu
+TOFU_VER=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+ARCH=$(uname -m); [[ "$ARCH" == "aarch64" ]] && TOFU_ARCH=arm64 || TOFU_ARCH=amd64
+curl -sLO "https://github.com/opentofu/opentofu/releases/download/${TOFU_VER}/tofu_${TOFU_VER#v}_linux_${TOFU_ARCH}.zip"
+unzip "tofu_${TOFU_VER#v}_linux_${TOFU_ARCH}.zip" tofu
 mkdir -p ~/bin && mv tofu ~/bin/
 export PATH="$HOME/bin:$PATH"
 ```
