@@ -93,8 +93,10 @@ The OCI CLI is pre-installed. You only need to install OpenTofu:
 
 ```bash
 # Download and install the tofu binary to your home directory (persists across sessions)
-curl -sLO https://github.com/opentofu/opentofu/releases/download/v1.9.0/tofu_1.9.0_linux_amd64.zip
-unzip tofu_1.9.0_linux_amd64.zip tofu
+ARCH=$(uname -m)
+[[ "$ARCH" == "aarch64" ]] && TOFU_ARCH=arm64 || TOFU_ARCH=amd64
+curl -sLO "https://github.com/opentofu/opentofu/releases/download/v1.9.0/tofu_1.9.0_linux_${TOFU_ARCH}.zip"
+unzip "tofu_1.9.0_linux_${TOFU_ARCH}.zip" tofu
 mkdir -p ~/bin && mv tofu ~/bin/
 export PATH="$HOME/bin:$PATH"
 ```
@@ -103,6 +105,17 @@ Add the export to `~/.bashrc` so it persists:
 
 ```bash
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+```
+
+**Install rclone (ARM and AMD64 auto-detected):**
+
+```bash
+ARCH=$(uname -m)
+[[ "$ARCH" == "aarch64" ]] && RCLONE_ARCH=arm64 || RCLONE_ARCH=amd64
+curl -sLO "https://downloads.rclone.org/rclone-current-linux-${RCLONE_ARCH}.zip"
+unzip rclone-current-linux-${RCLONE_ARCH}.zip
+mkdir -p ~/bin && cp rclone-*-linux-${RCLONE_ARCH}/rclone ~/bin/
+chmod 755 ~/bin/rclone
 ```
 
 Then skip ahead to [Step 3: Deploy with OpenTofu](#step-3-deploy-with-opentofu).
