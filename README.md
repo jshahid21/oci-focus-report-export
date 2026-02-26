@@ -107,6 +107,14 @@ Add the export to `~/.bashrc` so it persists:
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 ```
 
+**Download the project files from GitHub:**
+
+```bash
+curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/main.zip
+unzip main.zip
+cd oci-focus-report-export-main
+```
+
 **Install rclone (ARM and AMD64 auto-detected):**
 
 ```bash
