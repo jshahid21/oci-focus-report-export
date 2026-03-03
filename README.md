@@ -89,7 +89,11 @@ pip install oci-cli
 
 ### OCI Cloud Shell
 
-Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. OpenTofu still needs an OCI auth method to provision infrastructure — two options are available.
+Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. Follow these steps in order:
+
+#### Step CS-1: Set up OCI authentication for OpenTofu
+
+OpenTofu needs an OCI auth method to provision infrastructure — two options are available:
 
 **Option A (Recommended) — Copy your API key config once**
 
@@ -116,43 +120,26 @@ export TF_VAR_oci_auth=SecurityToken
 
 The OCI provider will use the active Cloud Shell session token.
 
----
+#### Step CS-2: Install OpenTofu
 
-You only need to install OpenTofu:
+The `tofu` binary installs to `~/bin`, which persists across sessions:
 
 ```bash
-# Download and install the tofu binary to your home directory (persists across sessions)
 TOFU_VER=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
 ARCH=$(uname -m); [[ "$ARCH" == "aarch64" ]] && TOFU_ARCH=arm64 || TOFU_ARCH=amd64
 curl -sLO "https://github.com/opentofu/opentofu/releases/download/${TOFU_VER}/tofu_${TOFU_VER#v}_linux_${TOFU_ARCH}.zip"
 unzip "tofu_${TOFU_VER#v}_linux_${TOFU_ARCH}.zip" tofu
 mkdir -p ~/bin && mv tofu ~/bin/
 export PATH="$HOME/bin:$PATH"
-```
-
-Add the export to `~/.bashrc` so it persists:
-
-```bash
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 ```
 
-**Download the project files from GitHub:**
+#### Step CS-3: Download the project files
 
 ```bash
 curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/main.zip
 unzip main.zip
 cd oci-focus-report-export-main
-```
-
-**Install rclone (ARM and AMD64 auto-detected):**
-
-```bash
-ARCH=$(uname -m)
-[[ "$ARCH" == "aarch64" ]] && RCLONE_ARCH=arm64 || RCLONE_ARCH=amd64
-curl -sLO "https://downloads.rclone.org/rclone-current-linux-${RCLONE_ARCH}.zip"
-unzip rclone-current-linux-${RCLONE_ARCH}.zip
-mkdir -p ~/bin && cp rclone-*-linux-${RCLONE_ARCH}/rclone ~/bin/
-chmod 755 ~/bin/rclone
 ```
 
 For **Option A**, continue to Steps 1 and 2 below, then [Step 3](#step-3-deploy-with-opentofu). For **Option B**, skip ahead directly to [Step 3](#step-3-deploy-with-opentofu).
