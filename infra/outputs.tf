@@ -9,19 +9,6 @@ output "instance_private_ip" {
 }
 
 # -----------------------------------------------------------------------------
-# Bastion VM outputs (create_bastion = true)
-# -----------------------------------------------------------------------------
-output "bastion_public_ip" {
-  description = "Public IP of the bastion VM (null when create_bastion = false)"
-  value       = var.create_bastion ? data.oci_core_vnic.bastion[0].public_ip_address : null
-}
-
-output "bastion_ssh_command" {
-  description = "SSH jump command to reach the sync VM via bastion VM"
-  value       = var.create_bastion ? "ssh -J opc@${data.oci_core_vnic.bastion[0].public_ip_address} opc@${oci_core_instance.rclone_sync.private_ip}" : null
-}
-
-# -----------------------------------------------------------------------------
 # OCI Bastion Service outputs (use_bastion_service = true)
 # -----------------------------------------------------------------------------
 output "bastion_service_id" {

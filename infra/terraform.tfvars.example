@@ -40,20 +40,13 @@ existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 
 # =============================================================================
 # SSH ACCESS TO THE PRIVATE SYNC VM
-# Choose ONE option, or neither (no SSH access needed if sync runs unattended).
+# Optional — not required if sync runs unattended.
 # =============================================================================
 
-# Option 1: Bastion VM — creates a jump host in a new public subnet
-# Requires an existing VCN. Creates its own IGW, public subnet, route table.
-create_bastion      = false
-# bastion_subnet_cidr = "10.0.2.0/24"
-# ssh_public_key_path = "~/.ssh/id_rsa.pub"
-
-# Option 2: OCI Bastion Service — managed, keyless SSH; no extra VM needed
+# OCI Bastion Service — managed, keyless SSH; no extra VM needed
 # Enables the Bastion plugin on the sync VM via Oracle Cloud Agent.
 use_bastion_service           = false
 # bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
-# ssh_public_key_path           = "~/.ssh/id_rsa.pub"   # used for port-forward sessions
 
 # =============================================================================
 # VAULT & SECRETS

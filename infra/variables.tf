@@ -40,7 +40,7 @@ variable "compartment_description" {
 
 # Optional per-resource compartment overrides. Leave empty to use existing_compartment_id.
 variable "compute_compartment_id" {
-  description = "Compartment for the sync VM and bastion VM. Defaults to existing_compartment_id."
+  description = "Compartment for the sync VM. Defaults to existing_compartment_id."
   type        = string
   default     = ""
 }
@@ -144,32 +144,8 @@ variable "existing_service_gateway_id" {
 }
 
 # -----------------------------------------------------------------------------
-# Bastion VM (option 1: traditional jump host in a new public subnet)
-# Creates its own IGW, public subnet, and route table within the VCN.
-# Works with both new and existing VCNs.
-# -----------------------------------------------------------------------------
-variable "create_bastion" {
-  description = "Create a bastion VM in a new public subnet for SSH jump access to the sync VM"
-  type        = bool
-  default     = false
-}
-
-variable "bastion_subnet_cidr" {
-  description = "CIDR for the bastion public subnet (only used when create_bastion = true)"
-  type        = string
-  default     = "10.0.2.0/24"
-}
-
-variable "ssh_public_key_path" {
-  description = "Path to SSH public key placed on the sync VM and bastion VM (required when create_bastion = true or use_bastion_service = true)"
-  type        = string
-  default     = "~/.ssh/id_rsa.pub"
-}
-
-# -----------------------------------------------------------------------------
-# OCI Bastion Service (option 2: managed keyless SSH to the private sync VM)
+# OCI Bastion Service (managed keyless SSH to the private sync VM)
 # No extra VM or public subnet required. Uses Oracle Cloud Agent plugin.
-# Mutually exclusive with create_bastion — choose one or neither.
 # -----------------------------------------------------------------------------
 variable "use_bastion_service" {
   description = "Create an OCI Bastion Service endpoint targeting the private sync VM subnet"
