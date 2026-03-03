@@ -7,9 +7,11 @@ Syncs Oracle Cloud (OCI) cost and usage reports to an AWS S3 bucket. Runs automa
 | Requirement | Purpose |
 |-------------|---------|
 | **OpenTofu** | `brew install opentofu` (Mac) or [opentofu.org](https://opentofu.org/docs/intro/install/) |
-| **OCI account** | API key in `~/.oci/config` (for `tofu apply` only; create via OCI Console → Profile → API Keys) |
+| **OCI account** | API key in `~/.oci/config` (for `tofu apply` only — see Prerequisites section below) |
+| **OCI compartment** | Where the sync VM and supporting resources will live |
+| **OCI private subnet** | Existing private subnet with NAT Gateway and Service Gateway in its route table, **or** let OpenTofu create them |
 | **AWS IAM user** | Access Key + Secret Key with S3 write permission |
-| **S3 bucket** | Created in AWS; the sync will create a folder inside it |
+| **AWS S3 bucket** | Destination bucket for OCI cost reports |
 
 ## Prerequisites & OCI Authentication
 
@@ -201,6 +203,64 @@ tofu apply
 
 ---
 
+## Networking Options
+
+The sync VM is always placed in a **private subnet** with no public IP. It reaches AWS S3 via a NAT Gateway and OCI Object Storage via a Service Gateway. You can bring your own existing networking or let OpenTofu create everything.
+
+| Scenario | What to set in `terraform.tfvars` |
+|----------|----------------------------------|
+| Existing VCN + private subnet + NAT GW + Service GW | `create_vcn = false`, `existing_vcn_id`, `create_subnet = false`, `existing_subnet_id`, `existing_nat_gateway_id`, `existing_service_gateway_id` |
+| Create all new networking | `create_vcn = true`, `create_subnet = true`, `create_nat_gateway = true`, `create_service_gateway = true` |
+| Mix (existing VCN, new gateways) | Set `create_vcn = false` with `existing_vcn_id`, set `create_nat_gateway = true`, etc. |
+
+Different compartments can be specified for compute, networking, and vault resources using the optional `compute_compartment_id`, `network_compartment_id`, and `vault_compartment_id` variables. All default to `existing_compartment_id` when left empty.
+
+## SSH Access to the Sync VM
+
+The sync VM runs unattended — SSH is only needed for debugging. Two options are available:
+
+### Option A — Bastion VM
+
+Creates a jump host in its own public subnet with an Internet Gateway. Works with both new and existing VCNs.
+
+```hcl
+create_bastion      = true
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+bastion_subnet_cidr = "10.0.2.0/24"   # must not overlap the private subnet
+```
+
+Connect via:
+
+```bash
+# Use the bastion_ssh_command output
+ssh -J opc@<bastion_public_ip> opc@<vm_private_ip>
+```
+
+### Option B — OCI Bastion Service
+
+Managed, serverless SSH access with no extra VM or public subnet. Oracle Cloud Agent handles the session on the VM side.
+
+```hcl
+use_bastion_service           = true
+bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP(s)
+ssh_public_key_path           = "~/.ssh/id_rsa.pub"   # for port-forward sessions
+```
+
+After `tofu apply`, create a session:
+
+```bash
+# Use the bastion_service_session_command output, or run:
+oci bastion session create-managed-ssh \
+  --bastion-id <bastion_service_id_output> \
+  --target-resource-id <instance_id_output> \
+  --target-os-username opc \
+  --session-ttl 10800
+```
+
+Then SSH using the session details OCI provides.
+
+> **Neither option is required** if the sync runs unattended and you rely on email alerts for failure notification.
+
 ## Quick Start (3 Steps)
 
 ### 1. Copy and edit the config file
@@ -213,9 +273,10 @@ cp terraform.tfvars.example terraform.tfvars
 Open `terraform.tfvars` and fill in:
 
 - `region`, `tenancy_ocid`, `existing_compartment_id` — from your OCI console
-- `aws_s3_bucket_name`, `aws_region` — your S3 bucket and its region
-- `aws_access_key`, `aws_secret_key` — AWS IAM user credentials (they go into OCI Vault, not on the VM)
-- `alert_email_address` — get email when bootstrap, sync, or cron run fails
+- Networking: set existing resource OCIDs or flip `create_*` flags to `true`
+- `aws_s3_bucket_name`, `aws_region` — your S3 destination bucket
+- `aws_access_key`, `aws_secret_key` — stored in OCI Vault, never on the VM
+- `alert_email_address` — email alerts on bootstrap or sync failure
 
 ### 2. Run the setup
 
@@ -224,11 +285,11 @@ tofu init
 tofu apply
 ```
 
-Type `yes` when prompted. Wait a few minutes for the VM to start.
+Type `yes` when prompted. Wait a few minutes for the VM to bootstrap.
 
 ### 3. Verify
 
-After apply, logs appear at `bastion_ssh_command`. SSH in and run:
+SSH in via your chosen access method and run:
 
 ```bash
 sudo tail /var/log/rclone-sync.log
@@ -246,16 +307,17 @@ sudo tail /var/log/rclone-sync.log
 - **Transit**: rclone uses HTTPS for OCI Object Storage and S3.
 - **OCI Vault**: AWS keys are encrypted at rest with KMS.
 
-**Important:** Terraform state and `terraform.tfvars` can contain plaintext AWS credentials. Use a remote encrypted backend for state and restrict access. See [ARCHITECTURE.md](ARCHITECTURE.md#8-security-details) for details.
+**Important:** Terraform state (`terraform.tfstate`) and `terraform.tfvars` can contain plaintext AWS credentials. Both are gitignored. Restrict filesystem access to the `infra/` directory and never commit these files. See [ARCHITECTURE.md](ARCHITECTURE.md#8-security-details) for details.
 
 ## Common Tasks
 
 | Task | Command / Location |
 |------|--------------------|
 | Check sync log | `sudo tail /var/log/rclone-sync.log` (on the VM) |
-| SSH to VM | Use the `bastion_ssh_command` output after apply |
-| See cron schedule | `sudo grep rclone /etc/crontab` |
-| Run sync manually | `sudo /usr/local/bin/sync.sh` |
+| SSH via bastion VM | `bastion_ssh_command` output after apply |
+| SSH via Bastion Service | `bastion_service_session_command` output after apply |
+| See cron schedule | `sudo grep rclone /etc/crontab` (on the VM) |
+| Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
 
 ## Alerts
 

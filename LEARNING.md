@@ -36,21 +36,22 @@ A guide for someone new to OpenTofu (Terraform) to understand this project’s s
 ## Part 2: Project Structure
 
 ```
-oci-rclone-sync/
-├── README.md              # Quick start, manual install, troubleshooting
+oci-focus-report-export/
+├── README.md              # Quick start, networking options, bastion options, troubleshooting
 ├── ARCHITECTURE.md        # Maintenance guide for developers
 ├── LEARNING.md            # This file
 ├── .gitignore
 └── infra/
-    ├── providers.tf       # OpenTofu + OCI provider config
-    ├── variables.tf       # Variable declarations (inputs)
-    ├── main.tf            # Core infra: VCN, subnet, Vault, compute, etc.
-    ├── iam.tf             # Dynamic group + IAM policies
-    ├── monitoring.tf      # Notification topic + email subscription
-    ├── outputs.tf         # Values printed after apply
-    ├── cloud-init.yaml    # VM bootstrap script (template)
-    ├── terraform.tfvars.example  # Example config (copy to terraform.tfvars)
-    └── terraform.tfvars   # Your values (gitignored; contains secrets)
+    ├── providers.tf               # OpenTofu + OCI provider config
+    ├── variables.tf               # Variable declarations (compartments, networking, bastion, etc.)
+    ├── main.tf                    # Core infra: VCN, gateways, bastion VM/service, Vault, compute
+    ├── iam.tf                     # Dynamic group + IAM policies
+    ├── monitoring.tf              # Notification topic + email subscription
+    ├── outputs.tf                 # Values printed after apply
+    ├── cloud-init.yaml            # VM bootstrap script (template)
+    ├── terraform.tfvars.example   # Example config (copy to terraform.tfvars)
+    ├── backend.tf.example         # OCI Object Storage remote backend template
+    └── terraform.tfvars           # Your values (gitignored; contains secrets)
 ```
 
 ### Why This Structure?
@@ -619,9 +620,114 @@ Terraform interpolates `${...}` first. We use `$$` so the shell, not Terraform, 
 
 ---
 
+## Part 10: Per-Resource Compartments
+
+### Why Multiple Compartments?
+
+In enterprise OCI environments, different teams own different OCI compartments. A shared networking team may own the VCN and gateways, while an application team owns the compute instances, and a security team owns the Vault.
+
+This project supports three optional compartment overrides in `terraform.tfvars`:
+
+```hcl
+compute_compartment_id = "ocid1.compartment.oc1..aaaa..."   # sync VM, bastion VM
+network_compartment_id = "ocid1.compartment.oc1..aaaa..."   # VCN, gateways, subnets
+vault_compartment_id   = "ocid1.compartment.oc1..aaaa..."   # Vault, KMS key, secrets
+```
+
+If any of these are left empty, they fall back to `existing_compartment_id`.
+
+### How It Works in Terraform
+
+The `locals` block in `main.tf` resolves the compartment for each resource type:
+
+```hcl
+compute_compartment_id = var.compute_compartment_id != "" ? var.compute_compartment_id : local.compartment_id
+network_compartment_id = var.network_compartment_id != "" ? var.network_compartment_id : local.compartment_id
+vault_compartment_id   = var.vault_compartment_id != "" ? var.vault_compartment_id : local.compartment_id
+```
+
+Each resource then uses its specific local, for example:
+- `oci_core_instance.rclone_sync` → `local.compute_compartment_id`
+- `oci_core_nat_gateway.this` → `local.network_compartment_id`
+- `oci_kms_vault.this` → `local.vault_compartment_id`
+
+---
+
+## Part 11: SSH Access Options — Bastion VM vs OCI Bastion Service
+
+The sync VM is always in a **private subnet** with no public IP. To SSH in for debugging, two options are available.
+
+### Option A — Bastion VM
+
+A traditional jump host: a small public VM in its own subnet with an Internet Gateway.
+
+```
+You → (internet) → Bastion VM (public IP) → (private network) → Sync VM
+```
+
+**How it works:**
+- OpenTofu creates an IGW, a public subnet, a security list, and a small VM
+- You SSH to the bastion, then SSH again to the sync VM (or use `-J` for ProxyJump)
+- **Cost:** A running OCI compute instance (though `VM.Standard.E3.Micro` is Always Free)
+- **Requires:** SSH public key in `ssh_public_key_path`
+
+**Configuration:**
+```hcl
+create_bastion      = true
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+bastion_subnet_cidr = "10.0.2.0/24"
+```
+
+### Option B — OCI Bastion Service
+
+A managed OCI service that creates temporary SSH sessions to private resources. No extra VM, no public subnet.
+
+```
+You → OCI Bastion Service endpoint → (Oracle-managed tunnel) → Sync VM
+```
+
+**How it works:**
+- OpenTofu creates a `oci_bastion_bastion` resource pointing at the private subnet
+- Oracle Cloud Agent on the sync VM runs the **Bastion plugin** (enabled automatically)
+- You create a session via OCI Console or CLI — OCI issues temporary SSH credentials
+- Sessions expire (default 3 hours, max 3 hours for Managed SSH)
+- **Cost:** Bastion Service itself is free; you pay only for the data transfer
+- **No persistent SSH key required** for Managed SSH sessions (OCI manages the key pair)
+
+**Configuration:**
+```hcl
+use_bastion_service           = true
+bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP
+```
+
+**Creating a session (after tofu apply):**
+```bash
+# Use the bastion_service_session_command output, or:
+oci bastion session create-managed-ssh \
+  --bastion-id <bastion_service_id> \
+  --target-resource-id <instance_id> \
+  --target-os-username opc \
+  --session-ttl 10800
+```
+
+OCI returns an SSH command to connect. Sessions are auditable in OCI Console → Bastion.
+
+### When to Use Each
+
+| Scenario | Recommendation |
+|----------|---------------|
+| Long-running debugging sessions | Bastion VM (no session TTL) |
+| Occasional access, audit trail needed | Bastion Service |
+| Enterprise / locked-down environment | Bastion Service (no public VM to patch) |
+| Always-free budget | Bastion VM with `VM.Standard.E3.Micro` shape |
+| Cloud Shell or no persistent SSH key | Bastion Service (Managed SSH is keyless) |
+
+---
+
 ## Further Reading
 
 - [OpenTofu Docs](https://opentofu.org/docs)
 - [OCI Provider](https://registry.terraform.io/providers/oracle/oci/latest/docs)
+- [OCI Bastion Service docs](https://docs.oracle.com/en-us/iaas/Content/Bastion/home.htm)
 - [cloud-init Docs](https://cloudinit.readthedocs.io/)
-- [rclone Oracle Object Storage](https://rclone.org/s3/)
+- [rclone Oracle Object Storage](https://rclone.org/oracleobjectstorage/)

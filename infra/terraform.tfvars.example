@@ -1,46 +1,94 @@
-# Copy to terraform.tfvars and fill in your values
+# Copy to terraform.tfvars and fill in your values.
+# See README.md → Prerequisites & OCI Authentication before running tofu apply.
 
 region       = "us-ashburn-1"
 tenancy_ocid = "ocid1.tenancy.oc1..aaaa..."
 
+# =============================================================================
+# COMPARTMENTS
+# Default compartment for all resources. Override per resource type if needed.
+# =============================================================================
 create_compartment      = false
 existing_compartment_id = "ocid1.compartment.oc1..aaaa..."
-compartment_name        = ""
 
-create_vcn                 = true
-existing_vcn_id            = ""
-create_subnet              = true
-existing_subnet_id         = ""
-create_nat_gateway         = true
-existing_nat_gateway_id    = ""
-create_service_gateway     = true
-existing_service_gateway_id = ""
+# Optional: place resources in different compartments (leave empty to use existing_compartment_id)
+# compute_compartment_id = "ocid1.compartment.oc1..aaaa..."   # sync VM + bastion VM
+# network_compartment_id = "ocid1.compartment.oc1..aaaa..."   # VCN, gateways, subnets
+# vault_compartment_id   = "ocid1.compartment.oc1..aaaa..."   # Vault, KMS key, secrets
 
-# Bastion (default: true; requires create_vcn)
-# create_bastion              = true
-# bastion_ssh_public_key_path = "~/.ssh/id_rsa.pub"
-# bastion_subnet_cidr         = "10.0.2.0/24"
+# =============================================================================
+# NETWORKING
+# Option A — Use existing VCN and private subnet (recommended for enterprise)
+# Option B — Create everything new (set create_* = true, clear existing_* ids)
+# =============================================================================
 
-create_vault      = true
-existing_vault_id = ""
-create_key        = true
-existing_key_id   = ""
+# VCN
+create_vcn      = false
+existing_vcn_id = "ocid1.vcn.oc1..aaaa..."
 
-create_aws_secrets                = true
-existing_aws_access_key_secret_id  = ""
-existing_aws_secret_key_secret_id  = ""
-aws_access_key = "AKIA..."
-aws_secret_key = "your-secret-here"
+# Private subnet (sync VM always placed here — no public IP ever assigned)
+create_subnet      = false
+existing_subnet_id = "ocid1.subnet.oc1..aaaa..."
 
-enable_monitoring   = true
-alert_email_address = "you@example.com"
+# NAT Gateway — required for sync VM → AWS S3 (internet egress)
+create_nat_gateway      = false
+existing_nat_gateway_id = "ocid1.natgateway.oc1..aaaa..."
 
-# Optional
-# opc_password       = ""
-# instance_shape    = "VM.Standard.E6.Flex"
-# instance_ocpus    = 1
-# instance_memory_gb = 4
+# Service Gateway — required for sync VM → OCI Object Storage / bling namespace
+create_service_gateway      = false
+existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 
+# =============================================================================
+# SSH ACCESS TO THE PRIVATE SYNC VM
+# Choose ONE option, or neither (no SSH access needed if sync runs unattended).
+# =============================================================================
+
+# Option 1: Bastion VM — creates a jump host in a new public subnet
+# Requires an existing VCN. Creates its own IGW, public subnet, route table.
+create_bastion      = false
+# bastion_subnet_cidr = "10.0.2.0/24"
+# ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Option 2: OCI Bastion Service — managed, keyless SSH; no extra VM needed
+# Enables the Bastion plugin on the sync VM via Oracle Cloud Agent.
+use_bastion_service           = false
+# bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
+# ssh_public_key_path           = "~/.ssh/id_rsa.pub"   # used for port-forward sessions
+
+# =============================================================================
+# VAULT & SECRETS
+# =============================================================================
+create_vault      = false
+existing_vault_id = "ocid1.vault.oc1..aaaa..."
+
+create_key      = false
+existing_key_id = "ocid1.key.oc1..aaaa..."
+
+create_aws_secrets                = false
+existing_aws_access_key_secret_id = "ocid1.vaultsecret.oc1..aaaa..."
+existing_aws_secret_key_secret_id = "ocid1.vaultsecret.oc1..aaaa..."
+
+# Only needed when create_aws_secrets = true
+# aws_access_key = "AKIA..."
+# aws_secret_key = "your-secret-here"
+
+# =============================================================================
+# AWS DESTINATION
+# =============================================================================
 aws_s3_bucket_name = "my-oci-cost-reports"
 aws_s3_prefix      = "oci-sync"
 aws_region         = "us-east-2"
+
+# =============================================================================
+# MONITORING
+# =============================================================================
+enable_monitoring   = true
+alert_email_address = "you@example.com"
+
+# =============================================================================
+# COMPUTE (optional overrides)
+# =============================================================================
+# instance_shape     = "VM.Standard.E6.Flex"   # or A1.Flex for free tier ARM
+# instance_ocpus     = 1
+# instance_memory_gb = 4
+# opc_password       = ""                       # Serial Console access only

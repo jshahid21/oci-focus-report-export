@@ -49,9 +49,11 @@ This document explains every component for someone maintaining this project. Sta
 | Variable Group | Key Variables | What They Control |
 |----------------|---------------|-------------------|
 | **Identity** | `region`, `tenancy_ocid` | OCI region and tenancy |
-| **Compartment** | `create_compartment`, `existing_compartment_id` | Use new or existing compartment |
-| **Network** | `create_vcn`, `create_subnet`, `create_nat_gateway`, `create_service_gateway` | Create new network or use existing (brownfield) |
-| **Bastion** | `create_bastion`, `bastion_ssh_public_key_path` | Optional SSH jump host for VM access |
+| **Compartment** | `create_compartment`, `existing_compartment_id` | Default compartment for all resources |
+| **Compartment overrides** | `compute_compartment_id`, `network_compartment_id`, `vault_compartment_id` | Optional per-resource compartment overrides; fall back to `existing_compartment_id` when empty |
+| **Network** | `create_vcn`, `create_subnet`, `create_nat_gateway`, `create_service_gateway` | Create new network or use existing (brownfield). Sync VM is always private. |
+| **Bastion VM** | `create_bastion`, `bastion_subnet_cidr`, `ssh_public_key_path` | Optional jump host in a new public subnet. Works with new or existing VCNs. |
+| **Bastion Service** | `use_bastion_service`, `bastion_service_allowed_cidrs` | OCI managed SSH — no extra VM, no public subnet. Mutually exclusive with `create_bastion`. |
 | **Vault** | `create_vault`, `create_key`, `create_aws_secrets` | Create Vault/KMS/secrets or use existing |
 | **AWS** | `aws_access_key`, `aws_secret_key`, `aws_s3_bucket_name`, `aws_region` | AWS creds (stored in Vault) and S3 destination |
 | **Monitoring** | `enable_monitoring`, `alert_email_address` | Email alerts on failure |
@@ -62,20 +64,22 @@ This document explains every component for someone maintaining this project. Sta
 ---
 
 ### `infra/main.tf`
-**Purpose:** Core infrastructure — compartment, VCN, subnet, NAT, service gateway, Vault, secrets, compute instance.
+**Purpose:** Core infrastructure — compartment, VCN, subnet, NAT, service gateway, Vault, secrets, compute instance, and optional SSH access methods.
 
 | Section | Resources | Logic |
 |---------|-----------|-------|
-| **locals** | `compartment_id`, `vault_id`, `aws_access_key_secret_id`, etc. | Chooses create vs existing based on `create_*` variables |
+| **locals** | `compartment_id`, `compute_compartment_id`, `network_compartment_id`, `vault_compartment_id`, etc. | Resolves create vs existing; per-resource compartment overrides fall back to base compartment |
 | **Compartment** | `oci_identity_compartment` | Created only if `create_compartment = true` |
-| **VCN** | `oci_core_vcn`, `oci_core_subnet` | Private subnet for the sync VM |
-| **NAT Gateway** | `oci_core_nat_gateway` | Internet egress for the VM (AWS, downloads) |
-| **Service Gateway** | `oci_core_service_gateway` | Direct path to OCI Object Storage (bling) |
-| **Route Table** | `oci_core_route_table` | Routes: 0.0.0.0/0 → NAT, Object Storage CIDR → Service Gateway |
-| **Bastion** | `oci_core_instance.bastion`, IGW, subnet | Optional public VM for SSH to sync VM |
-| **Vault** | `oci_kms_vault`, `oci_kms_key` | Encrypts secrets at rest |
-| **Secrets** | `oci_vault_secret.aws_access_key`, `oci_vault_secret.aws_secret_key` | Stores AWS keys (base64 encoded) in Vault |
-| **Compute** | `oci_core_instance.rclone_sync` | The sync VM. Gets `user_data` from `cloud-init.yaml` template. Freeform tag `Role=rclone-worker`. |
+| **VCN** | `oci_core_vcn` | Created only if `create_vcn = true`; otherwise uses `existing_vcn_id` |
+| **NAT Gateway** | `oci_core_nat_gateway` | Internet egress for the sync VM (→ AWS S3). Create or use existing. |
+| **Service Gateway** | `oci_core_service_gateway` | Private path to OCI Object Storage / bling. Create or use existing. |
+| **Route Table** | `oci_core_route_table.private` | Only created with new subnet. Routes: 0.0.0.0/0 → NAT, Object Storage CIDR → Service GW. |
+| **Private Subnet** | `oci_core_subnet.this` | `prohibit_public_ip_on_vnic = true`. Sync VM always here. |
+| **Bastion VM** | `oci_core_instance.bastion`, IGW, subnet, RT, SL | Created when `create_bastion = true`. Owns its own IGW and public subnet within the VCN. |
+| **OCI Bastion Service** | `oci_bastion_bastion` | Created when `use_bastion_service = true`. Targets the private subnet. No extra VM or subnet. |
+| **Vault** | `oci_kms_vault`, `oci_kms_key` | Encrypts secrets at rest. In `vault_compartment_id`. |
+| **Secrets** | `oci_vault_secret.aws_access_key`, `oci_vault_secret.aws_secret_key` | Stores AWS keys (base64). In `vault_compartment_id`. |
+| **Compute** | `oci_core_instance.rclone_sync` | Sync VM. Always private (`assign_public_ip = false`). Bastion plugin enabled when `use_bastion_service = true`. In `compute_compartment_id`. |
 
 **Critical:** The `metadata.user_data` is rendered from `cloud-init.yaml` using `templatefile()`. Changing cloud-init requires replacing the instance (`tofu apply -replace=oci_core_instance.rclone_sync`).
 
@@ -132,14 +136,16 @@ This document explains every component for someone maintaining this project. Sta
 | Output | Use |
 |--------|-----|
 | `instance_id`, `instance_private_ip` | VM identifiers |
-| `bastion_public_ip`, `bastion_ssh_command` | SSH via bastion |
+| `bastion_public_ip`, `bastion_ssh_command` | SSH via bastion VM (`create_bastion = true`) |
+| `bastion_service_id`, `bastion_service_session_command` | SSH via OCI Bastion Service (`use_bastion_service = true`) |
 | `aws_access_key_secret_id`, `aws_secret_key_secret_id` | Vault secret OCIDs (debugging) |
 | `alert_notification_topic_id` | Test alerts from VM |
 
 ---
 
 ### `infra/terraform.tfvars.example`
-**Purpose:** Template for `terraform.tfvars`. Copy to `terraform.tfvars` and fill in real values. `terraform.tfvars` is gitignored (contains secrets).
+**Purpose:** Template for `terraform.tfvars`. Copy to `terraform.tfvars` and fill in real values. `terraform.tfvars` is gitignored (contains secrets). Sections cover compartments, networking, SSH access options, vault, secrets, AWS destination, monitoring, and compute.
+
 
 ---
 
@@ -221,7 +227,7 @@ This project handles cost/usage reports (financial data). Key considerations:
 
 | Risk | Mitigation |
 |------|------------|
-| **Terraform state** contains `aws_access_key`, `aws_secret_key`, and secret content. Anyone with state access can recover keys. | Use a **remote backend** (S3, GCS) with encryption at rest. Use state locking (e.g. DynamoDB for S3). Restrict who can read the backend. Never commit `*.tfstate`. |
+| **Terraform state** contains `aws_access_key`, `aws_secret_key`, and secret content. Anyone with state access can recover keys. | `terraform.tfstate` is gitignored and stays in `infra/` on the deploying machine. Restrict filesystem access. Never commit `*.tfstate`. |
 | **terraform.tfvars** holds plaintext AWS keys on disk. | Keep tfvars gitignored (it is). Consider `TF_VAR_aws_access_key` / `TF_VAR_aws_secret_key` from env or a secrets manager in CI. Restrict filesystem access. |
 | **S3 destination** receives the reports. | Enable default encryption, restrict bucket policy, enable access logging. Scope AWS IAM to minimal S3 permissions. |
 
@@ -236,18 +242,20 @@ This project handles cost/usage reports (financial data). Key considerations:
 ## 9. Project Structure Summary
 
 ```
-oci-rclone-sync/
+oci-focus-report-export/
 ├── README.md              # Quick start and user-facing docs
 ├── ARCHITECTURE.md        # This file — component and maintenance guide
+├── LEARNING.md            # Deep-dive concepts (OpenTofu, cloud-init, rclone, Bastion Service)
 ├── .gitignore             # Excludes tfvars, tfstate, credentials
 └── infra/
-    ├── providers.tf       # OCI provider config
-    ├── variables.tf      # Variable declarations
-    ├── main.tf           # Core infra (VCN, Vault, compute)
-    ├── iam.tf            # Dynamic group + policies
-    ├── monitoring.tf     # Notification topic + email
-    ├── outputs.tf        # Post-apply outputs
-    ├── cloud-init.yaml   # VM bootstrap (template)
-    ├── terraform.tfvars.example   # Config template
-    └── terraform.tfvars  # Your values (gitignored)
+    ├── providers.tf               # OCI provider config (supports workstation + Cloud Shell auth)
+    ├── variables.tf               # Variable declarations (compartments, networking, bastion options)
+    ├── main.tf                    # Core infra (VCN, gateways, Vault, bastion VM/service, compute)
+    ├── iam.tf                     # Dynamic group + policies
+    ├── monitoring.tf              # Notification topic + email
+    ├── outputs.tf                 # Post-apply outputs (bastion VM, bastion service, vault)
+    ├── cloud-init.yaml            # VM bootstrap (template)
+    ├── terraform.tfvars.example   # Config template (all options documented)
+    ├── terraform.tfvars           # Your values (gitignored)
+    └── terraform.tfstate          # Local state (gitignored — stays in infra/ on deploying machine)
 ```

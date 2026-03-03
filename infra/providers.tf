@@ -5,7 +5,20 @@ terraform {
   }
 }
 
+# auth = "APIKey"           — default; reads ~/.oci/config (workstation, OL8/9, Windows)
+# auth = "SecurityToken"    — OCI Cloud Shell; reads session token from ~/.oci/config
+#
+# Override without editing this file:
+#   export TF_VAR_oci_auth=SecurityToken   (Cloud Shell)
+#   export TF_VAR_oci_auth=APIKey          (everywhere else)
+variable "oci_auth" {
+  description = "OCI provider auth method. APIKey for workstation; SecurityToken for OCI Cloud Shell."
+  type        = string
+  default     = "APIKey"
+}
+
 provider "oci" {
-  config_file_profile = "DEFAULT"
+  auth                = var.oci_auth
+  config_file_profile = var.oci_auth == "APIKey" ? "DEFAULT" : null
   region              = var.region
 }
