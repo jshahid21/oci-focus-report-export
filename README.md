@@ -231,33 +231,11 @@ Different compartments can be specified for compute, networking, and vault resou
 
 ## SSH Access to the Sync VM
 
-The sync VM runs unattended — SSH is only needed for debugging. Two options are available:
-
-### Option A — Bastion VM
-
-Creates a jump host in its own public subnet with an Internet Gateway. Works with both new and existing VCNs.
-
-```hcl
-create_bastion      = true
-ssh_public_key_path = "~/.ssh/id_rsa.pub"
-bastion_subnet_cidr = "10.0.2.0/24"   # must not overlap the private subnet
-```
-
-Connect via:
-
-```bash
-# Use the bastion_ssh_command output
-ssh -J opc@<bastion_public_ip> opc@<vm_private_ip>
-```
-
-### Option B — OCI Bastion Service
-
-Managed, serverless SSH access with no extra VM or public subnet. Oracle Cloud Agent handles the session on the VM side.
+The sync VM runs unattended — SSH is only needed for debugging. Use the OCI Bastion Service: managed, serverless SSH with no extra VM, public subnet, or SSH key pre-provisioning required. Oracle Cloud Agent handles the session and key pair on the VM side.
 
 ```hcl
 use_bastion_service           = true
 bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP(s)
-ssh_public_key_path           = "~/.ssh/id_rsa.pub"   # for port-forward sessions
 ```
 
 After `tofu apply`, create a session:
@@ -273,7 +251,7 @@ oci bastion session create-managed-ssh \
 
 Then SSH using the session details OCI provides.
 
-> **Neither option is required** if the sync runs unattended and you rely on email alerts for failure notification.
+> **SSH access is not required** if the sync runs unattended and you rely on email alerts for failure notification.
 
 ## Quick Start (3 Steps)
 
@@ -289,7 +267,9 @@ Open `terraform.tfvars` and fill in:
 - `region`, `tenancy_ocid`, `existing_compartment_id` — from your OCI console
 - Networking: set existing resource OCIDs or flip `create_*` flags to `true`
 - `aws_s3_bucket_name`, `aws_region` — your S3 destination bucket
-- `aws_access_key`, `aws_secret_key` — stored in OCI Vault, never on the VM
+- **AWS credentials (choose one):**
+  - **Let OpenTofu create Vault secrets:** set `create_aws_secrets = true`, `create_vault = true` (or `existing_vault_id`), `create_key = true` (or `existing_key_id`), then fill in `aws_access_key` and `aws_secret_key`
+  - **Use existing Vault secrets:** set `create_aws_secrets = false`, fill in `existing_aws_access_key_secret_id` and `existing_aws_secret_key_secret_id` with the Vault secret OCIDs
 - `alert_email_address` — email alerts on bootstrap or sync failure
 
 ### 2. Run the setup
@@ -328,7 +308,6 @@ sudo tail /var/log/rclone-sync.log
 | Task | Command / Location |
 |------|--------------------|
 | Check sync log | `sudo tail /var/log/rclone-sync.log` (on the VM) |
-| SSH via bastion VM | `bastion_ssh_command` output after apply |
 | SSH via Bastion Service | `bastion_service_session_command` output after apply |
 | See cron schedule | `sudo grep rclone /etc/crontab` (on the VM) |
 | Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
@@ -381,174 +360,3 @@ Your IAM user needs S3 access. Example policy (replace `YOUR_BUCKET`):
 
 **Maintainers:** See [ARCHITECTURE.md](ARCHITECTURE.md) for a file-by-file breakdown of components, maintenance tasks, and security details.
 
----
-
-## Manual Install (Alternative)
-
-Use this when you prefer not to use OpenTofu, or want to understand how the solution works under the hood.
-
-**Important:** The VM must be an **OCI compute instance**—Instance Principal only works on OCI. For VMs on other clouds or on-prem, you would need OCI API keys and different IAM policies.
-
-### Manual Prerequisites
-
-| Requirement | Purpose |
-|-------------|---------|
-| OCI compartment | Where your VM and Vault live |
-| VCN, subnet, NAT gateway | Internet egress for AWS and downloads |
-| Service Gateway | Direct path to OCI Object Storage (bling) |
-| OCI Vault + KMS key | Store AWS credentials (encrypted at rest) |
-| AWS IAM user + S3 bucket | Same as OpenTofu path |
-
-### Step 1: Create OCI Infrastructure
-
-Create (or use existing):
-
-- **VCN** and **private subnet**
-- **NAT Gateway** — routes `0.0.0.0/0` for AWS and package downloads
-- **Service Gateway** — routes Object Storage CIDR for bling namespace
-- **Route table** — default via NAT; Object Storage CIDR via Service Gateway
-
-### Step 2: OCI Vault
-
-1. Create a Vault and KMS key in your compartment (Console or `oci kms vault create`).
-2. Store AWS credentials as base64-encoded secrets:
-   ```bash
-   # Encode and store (example; use Console or oci vault secret create)
-   echo -n "AKIA..." | base64 -w0   # aws_access_key
-   echo -n "your-secret" | base64 -w0   # aws_secret_key
-   ```
-3. Note the **secret OCIDs** for both secrets (you'll use them in the sync script).
-
-### Step 3: IAM Policies (Tenancy Level)
-
-Create a **dynamic group** matching instances in your compartment:
-
-```
-instance.compartment.id = 'ocid1.compartment.oc1..aaaa...'
-```
-
-Create a **policy** with these statements (replace `rclone-dg` and compartment OCID):
-
-```
-Define tenancy usage-report as ocid1.tenancy.oc1..aaaaaaaaned4fkpkisbwjlr56u7cj63lf3wffbilvqknstgtvzub7vhqkggq
-Endorse dynamic-group rclone-dg to read objects in tenancy usage-report
-Endorse dynamic-group rclone-dg to read buckets in tenancy usage-report
-Allow dynamic-group rclone-dg to use secret-bundles in compartment id <your_compartment_ocid>
-```
-
-Optional (for email alerts):
-
-```
-Allow dynamic-group rclone-dg to use ons-topics in compartment id <your_compartment_ocid>
-```
-
-### Step 4: Provision the VM
-
-- Launch an Oracle Linux instance in the private subnet.
-- Ensure it has internet via NAT and Object Storage via Service Gateway.
-
-### Step 5: Install Software (on VM)
-
-```bash
-sudo dnf install -y unzip jq python3-pip
-sudo pip3 install --break-system-packages oci-cli 2>/dev/null || sudo pip3 install oci-cli
-
-# rclone
-ARCH=$(uname -m)
-[[ "$ARCH" == "aarch64" ]] && RCLONE_ARCH=arm64 || RCLONE_ARCH=amd64
-curl -sLO "https://downloads.rclone.org/rclone-current-linux-${RCLONE_ARCH}.zip"
-unzip -o rclone-current-linux-${RCLONE_ARCH}.zip
-sudo cp rclone-*-linux-${RCLONE_ARCH}/rclone /usr/local/bin/
-sudo chmod 755 /usr/local/bin/rclone
-```
-
-### Step 6: Rclone Config
-
-Create `/root/.config/rclone/rclone.conf` (mode `0600`):
-
-```ini
-[oci_usage]
-type = oracleobjectstorage
-provider = instance_principal_auth
-namespace = bling
-compartment = YOUR_TENANCY_OCID
-region = us-ashburn-1
-no_check_bucket = true
-
-[aws_s3]
-type = s3
-provider = AWS
-region = us-east-2
-env_auth = true
-```
-
-Replace `YOUR_TENANCY_OCID`, `region`, and `aws_s3` region with your values.
-
-### Step 7: Sync Script
-
-Create `/usr/local/bin/sync.sh` (mode `0755`):
-
-```bash
-#!/bin/bash
-set -e
-export PATH="/usr/local/bin:$PATH"
-export RCLONE_CONFIG="/root/.config/rclone/rclone.conf"
-export OCI_CLI_AUTH=instance_principal
-
-# Replace with your OCI Vault secret OCIDs
-AWS_ACCESS_KEY_SECRET_ID="ocid1.vaultsecret.oc1..aaaa..."
-AWS_SECRET_KEY_SECRET_ID="ocid1.vaultsecret.oc1..aaaa..."
-
-S3_BUCKET="my-oci-cost-reports"
-S3_PREFIX="oci-sync"
-TENANCY_OCID="ocid1.tenancy.oc1..aaaa..."
-
-OCI_BIN="$(command -v oci 2>/dev/null)"
-[[ -z "$OCI_BIN" ]] && OCI_BIN="/usr/local/bin/oci"
-
-# Optional: alert on failure (set ALERT_TOPIC_ID if using OCI Notifications)
-# alert_on_exit() {
-#   local code=$?
-#   if [[ $code -ne 0 ]] && [[ -n "$ALERT_TOPIC_ID" ]]; then
-#     $OCI_BIN ons message publish --topic-id "$ALERT_TOPIC_ID" --auth instance_principal \
-#       --body "Rclone sync FAILED (exit $code). Check /var/log/rclone-sync.log on $(hostname)" 2>/dev/null || true
-#   fi
-# }
-# trap alert_on_exit EXIT
-
-export AWS_ACCESS_KEY_ID=$($OCI_BIN secrets secret-bundle get --secret-id "$AWS_ACCESS_KEY_SECRET_ID" \
-  --auth instance_principal --query 'data."secret-bundle-content".content' --raw-output \
-  | base64 --decode | tr -d '\n\r\t ')
-export AWS_SECRET_ACCESS_KEY=$($OCI_BIN secrets secret-bundle get --secret-id "$AWS_SECRET_KEY_SECRET_ID" \
-  --auth instance_principal --query 'data."secret-bundle-content".content' --raw-output \
-  | base64 --decode | tr -d '\n\r\t ')
-
-/usr/local/bin/rclone sync "oci_usage:${TENANCY_OCID}" "aws_s3:${S3_BUCKET}/${S3_PREFIX}" \
-  --log-file=/var/log/rclone-sync.log --checksum --s3-chunk-size 64M --s3-upload-concurrency 8 -v
-```
-
-Fill in the secret OCIDs, `S3_BUCKET`, `S3_PREFIX`, and `TENANCY_OCID`.
-
-### Step 8: Cron Job
-
-```bash
-echo "0 */6 * * * root /usr/local/bin/sync.sh >> /var/log/rclone-sync.log 2>&1" | sudo tee -a /etc/crontab
-```
-
-### Step 9: Verify
-
-```bash
-sudo /usr/local/bin/sync.sh
-sudo tail /var/log/rclone-sync.log
-```
-
-### Sync Script Checklist
-
-| Requirement | Purpose |
-|-------------|---------|
-| `oci` CLI | Fetches secrets from OCI Vault via Instance Principal |
-| `set -e` | Exits on first error |
-| `OCI_CLI_AUTH=instance_principal` | No OCI config file needed on VM |
-| `RCLONE_CONFIG` | Points rclone to the config file |
-| Base64 decode + `tr -d '\n\r\t '` | Vault stores base64; trimming avoids S3 auth errors |
-| `env_auth = true` (rclone) | Uses `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` from env |

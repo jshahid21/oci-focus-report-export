@@ -52,8 +52,7 @@ This document explains every component for someone maintaining this project. Sta
 | **Compartment** | `create_compartment`, `existing_compartment_id` | Default compartment for all resources |
 | **Compartment overrides** | `compute_compartment_id`, `network_compartment_id`, `vault_compartment_id` | Optional per-resource compartment overrides; fall back to `existing_compartment_id` when empty |
 | **Network** | `create_vcn`, `create_subnet`, `create_nat_gateway`, `create_service_gateway` | Create new network or use existing (brownfield). Sync VM is always private. |
-| **Bastion VM** | `create_bastion`, `bastion_subnet_cidr`, `ssh_public_key_path` | Optional jump host in a new public subnet. Works with new or existing VCNs. |
-| **Bastion Service** | `use_bastion_service`, `bastion_service_allowed_cidrs` | OCI managed SSH — no extra VM, no public subnet. Mutually exclusive with `create_bastion`. |
+| **Bastion Service** | `use_bastion_service`, `bastion_service_allowed_cidrs` | OCI managed SSH — no extra VM, no public subnet, no pre-provisioned SSH keys. |
 | **Vault** | `create_vault`, `create_key`, `create_aws_secrets` | Create Vault/KMS/secrets or use existing |
 | **AWS** | `aws_access_key`, `aws_secret_key`, `aws_s3_bucket_name`, `aws_region` | AWS creds (stored in Vault) and S3 destination |
 | **Monitoring** | `enable_monitoring`, `alert_email_address` | Email alerts on failure |
@@ -64,7 +63,7 @@ This document explains every component for someone maintaining this project. Sta
 ---
 
 ### `infra/main.tf`
-**Purpose:** Core infrastructure — compartment, VCN, subnet, NAT, service gateway, Vault, secrets, compute instance, and optional SSH access methods.
+**Purpose:** Core infrastructure — compartment, VCN, subnet, NAT, service gateway, Vault, secrets, compute instance, and optional OCI Bastion Service.
 
 | Section | Resources | Logic |
 |---------|-----------|-------|
@@ -75,8 +74,7 @@ This document explains every component for someone maintaining this project. Sta
 | **Service Gateway** | `oci_core_service_gateway` | Private path to OCI Object Storage / bling. Create or use existing. |
 | **Route Table** | `oci_core_route_table.private` | Only created with new subnet. Routes: 0.0.0.0/0 → NAT, Object Storage CIDR → Service GW. |
 | **Private Subnet** | `oci_core_subnet.this` | `prohibit_public_ip_on_vnic = true`. Sync VM always here. |
-| **Bastion VM** | `oci_core_instance.bastion`, IGW, subnet, RT, SL | Created when `create_bastion = true`. Owns its own IGW and public subnet within the VCN. |
-| **OCI Bastion Service** | `oci_bastion_bastion` | Created when `use_bastion_service = true`. Targets the private subnet. No extra VM or subnet. |
+| **OCI Bastion Service** | `oci_bastion_bastion` | Created when `use_bastion_service = true`. Targets the private subnet. No extra VM, subnet, or SSH keys. |
 | **Vault** | `oci_kms_vault`, `oci_kms_key` | Encrypts secrets at rest. In `vault_compartment_id`. |
 | **Secrets** | `oci_vault_secret.aws_access_key`, `oci_vault_secret.aws_secret_key` | Stores AWS keys (base64). In `vault_compartment_id`. |
 | **Compute** | `oci_core_instance.rclone_sync` | Sync VM. Always private (`assign_public_ip = false`). Bastion plugin enabled when `use_bastion_service = true`. In `compute_compartment_id`. |
@@ -136,7 +134,6 @@ This document explains every component for someone maintaining this project. Sta
 | Output | Use |
 |--------|-----|
 | `instance_id`, `instance_private_ip` | VM identifiers |
-| `bastion_public_ip`, `bastion_ssh_command` | SSH via bastion VM (`create_bastion = true`) |
 | `bastion_service_id`, `bastion_service_session_command` | SSH via OCI Bastion Service (`use_bastion_service = true`) |
 | `aws_access_key_secret_id`, `aws_secret_key_secret_id` | Vault secret OCIDs (debugging) |
 | `alert_notification_topic_id` | Test alerts from VM |
@@ -144,7 +141,7 @@ This document explains every component for someone maintaining this project. Sta
 ---
 
 ### `infra/terraform.tfvars.example`
-**Purpose:** Template for `terraform.tfvars`. Copy to `terraform.tfvars` and fill in real values. `terraform.tfvars` is gitignored (contains secrets). Sections cover compartments, networking, SSH access options, vault, secrets, AWS destination, monitoring, and compute.
+**Purpose:** Template for `terraform.tfvars`. Copy to `terraform.tfvars` and fill in real values. `terraform.tfvars` is gitignored (contains secrets). Sections cover compartments, networking, bastion service, vault, secrets, AWS destination, monitoring, and compute.
 
 
 ---
@@ -249,11 +246,11 @@ oci-focus-report-export/
 ├── .gitignore             # Excludes tfvars, tfstate, credentials
 └── infra/
     ├── providers.tf               # OCI provider config (supports workstation + Cloud Shell auth)
-    ├── variables.tf               # Variable declarations (compartments, networking, bastion options)
-    ├── main.tf                    # Core infra (VCN, gateways, Vault, bastion VM/service, compute)
+    ├── variables.tf               # Variable declarations (compartments, networking, bastion service options)
+    ├── main.tf                    # Core infra (VCN, gateways, Vault, bastion service, compute)
     ├── iam.tf                     # Dynamic group + policies
     ├── monitoring.tf              # Notification topic + email
-    ├── outputs.tf                 # Post-apply outputs (bastion VM, bastion service, vault)
+    ├── outputs.tf                 # Post-apply outputs (bastion service, vault)
     ├── cloud-init.yaml            # VM bootstrap (template)
     ├── terraform.tfvars.example   # Config template (all options documented)
     ├── terraform.tfvars           # Your values (gitignored)

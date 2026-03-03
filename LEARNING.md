@@ -167,9 +167,7 @@ metadata = merge(
       aws_access_key_secret_id = local.aws_access_key_secret_id
       ...
     }))
-  },
-  var.create_bastion ? { ssh_authorized_keys = ... } : {}
-)
+  }
 ```
 
 Conceptually:
@@ -177,7 +175,6 @@ Conceptually:
 1. `templatefile(...)` — Load `cloud-init.yaml` and replace placeholders like `${tenancy_ocid}`.
 2. `base64encode(...)` — OCI expects `user_data` base64-encoded.
 3. `metadata.user_data` — OCI runs this on first boot.
-4. `merge(...)` — Optionally add SSH keys when a bastion is created.
 
 ---
 
@@ -255,8 +252,8 @@ Outputs are printed after `tofu apply` and used for operations (SSH, debugging).
 |--------|-----|
 | `instance_id` | VM OCID. |
 | `instance_private_ip` | Private IP of the sync VM. |
-| `bastion_public_ip` | Bastion public IP for SSH jump host. |
-| `bastion_ssh_command` | Full SSH command to reach the sync VM. |
+| `bastion_service_id` | Bastion Service OCID (for session creation). |
+| `bastion_service_session_command` | Pre-built OCI CLI command to create a Managed SSH session. |
 | `aws_access_key_secret_id` | Vault secret OCID (debugging). |
 | `alert_notification_topic_id` | Topic OCID for testing alerts. |
 
@@ -653,34 +650,9 @@ Each resource then uses its specific local, for example:
 
 ---
 
-## Part 11: SSH Access Options — Bastion VM vs OCI Bastion Service
+## Part 11: SSH Access — OCI Bastion Service
 
-The sync VM is always in a **private subnet** with no public IP. To SSH in for debugging, two options are available.
-
-### Option A — Bastion VM
-
-A traditional jump host: a small public VM in its own subnet with an Internet Gateway.
-
-```
-You → (internet) → Bastion VM (public IP) → (private network) → Sync VM
-```
-
-**How it works:**
-- OpenTofu creates an IGW, a public subnet, a security list, and a small VM
-- You SSH to the bastion, then SSH again to the sync VM (or use `-J` for ProxyJump)
-- **Cost:** A running OCI compute instance (though `VM.Standard.E3.Micro` is Always Free)
-- **Requires:** SSH public key in `ssh_public_key_path`
-
-**Configuration:**
-```hcl
-create_bastion      = true
-ssh_public_key_path = "~/.ssh/id_rsa.pub"
-bastion_subnet_cidr = "10.0.2.0/24"
-```
-
-### Option B — OCI Bastion Service
-
-A managed OCI service that creates temporary SSH sessions to private resources. No extra VM, no public subnet.
+The sync VM is always in a **private subnet** with no public IP. To SSH in for debugging, use the OCI Bastion Service: a managed service that creates temporary SSH sessions with no extra VM, no public subnet, and no SSH keys to pre-provision.
 
 ```
 You → OCI Bastion Service endpoint → (Oracle-managed tunnel) → Sync VM
@@ -690,9 +662,9 @@ You → OCI Bastion Service endpoint → (Oracle-managed tunnel) → Sync VM
 - OpenTofu creates a `oci_bastion_bastion` resource pointing at the private subnet
 - Oracle Cloud Agent on the sync VM runs the **Bastion plugin** (enabled automatically)
 - You create a session via OCI Console or CLI — OCI issues temporary SSH credentials
-- Sessions expire (default 3 hours, max 3 hours for Managed SSH)
-- **Cost:** Bastion Service itself is free; you pay only for the data transfer
-- **No persistent SSH key required** for Managed SSH sessions (OCI manages the key pair)
+- Sessions expire (max 3 hours for Managed SSH)
+- **Cost:** Bastion Service itself is free; you pay only for data transfer
+- **No SSH key pre-provisioning required** — OCI manages the key pair for the session
 
 **Configuration:**
 ```hcl
@@ -711,16 +683,6 @@ oci bastion session create-managed-ssh \
 ```
 
 OCI returns an SSH command to connect. Sessions are auditable in OCI Console → Bastion.
-
-### When to Use Each
-
-| Scenario | Recommendation |
-|----------|---------------|
-| Long-running debugging sessions | Bastion VM (no session TTL) |
-| Occasional access, audit trail needed | Bastion Service |
-| Enterprise / locked-down environment | Bastion Service (no public VM to patch) |
-| Always-free budget | Bastion VM with `VM.Standard.E3.Micro` shape |
-| Cloud Shell or no persistent SSH key | Bastion Service (Managed SSH is keyless) |
 
 ---
 
