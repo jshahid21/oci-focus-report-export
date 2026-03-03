@@ -26,7 +26,7 @@ Pick your client environment and follow the relevant section:
 | macOS | Steps 1, 2, 3 below |
 | Oracle Linux 8 / 9 | Steps 1, 2, 3 — with different install commands |
 | Windows | Steps 1, 2, 3 — with different install commands and config path |
-| OCI Cloud Shell | Skip Steps 1 & 2 — only install `tofu` binary, then Step 3 |
+| OCI Cloud Shell | **Option A (recommended):** Steps 1, 2 (upload key once, `$HOME` persists), then Step 3. **Option B:** skip Steps 1 & 2, set `TF_VAR_oci_auth=SecurityToken`, then Step 3 |
 
 ---
 
@@ -89,9 +89,36 @@ pip install oci-cli
 
 ### OCI Cloud Shell
 
-Cloud Shell is pre-authenticated as your OCI Console user. **Skip Steps 1 and 2 entirely.**
+Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. OpenTofu still needs an OCI auth method to provision infrastructure — two options are available.
 
-The OCI CLI is pre-installed. You only need to install OpenTofu:
+**Option A (Recommended) — Copy your API key config once**
+
+`$HOME` persists across Cloud Shell sessions, so this is a one-time setup. Complete Steps 1 and 2 below on your local machine (or directly in Cloud Shell), then upload the key and config using the Cloud Shell **Upload** button:
+
+- `~/.oci/oci_api_key.pem` — your private key
+- `~/.oci/config` — your OCI config file
+
+Then set permissions:
+
+```bash
+chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
+```
+
+No extra environment variable is needed — `APIKey` is the default auth method.
+
+**Option B — Use the Cloud Shell session token**
+
+If you prefer not to copy keys, skip Steps 1 and 2 and set this before running `tofu apply`:
+
+```bash
+export TF_VAR_oci_auth=SecurityToken
+```
+
+The OCI provider will use the active Cloud Shell session token.
+
+---
+
+You only need to install OpenTofu:
 
 ```bash
 # Download and install the tofu binary to your home directory (persists across sessions)
@@ -128,13 +155,13 @@ mkdir -p ~/bin && cp rclone-*-linux-${RCLONE_ARCH}/rclone ~/bin/
 chmod 755 ~/bin/rclone
 ```
 
-Then skip ahead to [Step 3: Deploy with OpenTofu](#step-3-deploy-with-opentofu).
+For **Option A**, continue to Steps 1 and 2 below, then [Step 3](#step-3-deploy-with-opentofu). For **Option B**, skip ahead directly to [Step 3](#step-3-deploy-with-opentofu).
 
 ---
 
 ### Step 1: Generate an OCI API Key Pair
 
-> **Skip this step if using OCI Cloud Shell.**
+> **OCI Cloud Shell — Option B only:** Skip this step if using `TF_VAR_oci_auth=SecurityToken`.
 
 1. Log in to the [OCI Console](https://cloud.oracle.com).
 2. Click your **Profile** icon (top-right) → **My profile** → **API keys** → **Add API key**.
@@ -154,7 +181,7 @@ Upload the contents of `oci_api_key_public.pem` to the OCI Console under **Profi
 
 ### Step 2: Configure the OCI Config File
 
-> **Skip this step if using OCI Cloud Shell.**
+> **OCI Cloud Shell — Option B only:** Skip this step if using `TF_VAR_oci_auth=SecurityToken`.
 
 Create (or edit) `~/.oci/config` (macOS / Linux) or `C:\Users\<username>\.oci\config` (Windows) with the values from the OCI Console configuration preview:
 
