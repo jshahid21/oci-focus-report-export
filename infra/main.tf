@@ -32,7 +32,7 @@ locals {
   object_storage_cidr    = local.object_storage_service.cidr_block
   object_storage_id      = local.object_storage_service.id
 
-  ssh_public_key = var.ssh_public_key_path != "" ? trimspace(file(var.ssh_public_key_path)) : ""
+  ssh_public_key = var.ssh_public_key_path != "" ? try(trimspace(file(pathexpand(var.ssh_public_key_path))), "") : ""
 }
 
 # -----------------------------------------------------------------------------
