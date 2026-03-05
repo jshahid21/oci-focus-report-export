@@ -43,9 +43,12 @@ existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 # Optional — not required if sync runs unattended.
 # =============================================================================
 
+# All SSH options default to false — enable only when needed for debugging.
+# Cloud Shell users: if using Private Network Access on the same subnet,
+# set ssh_public_key_path and SSH directly to the VM's private IP (no bastion needed).
+
 # OCI Bastion Service — managed, keyless SSH; no extra VM needed
-# Enables the Bastion plugin on the sync VM via Oracle Cloud Agent.
-use_bastion_service           = false
+use_bastion_service           = false   # set true to enable
 # bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
 
 # Optional SSH public key — enables port-forwarding Bastion sessions as a

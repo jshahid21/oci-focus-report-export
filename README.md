@@ -231,7 +231,9 @@ Different compartments can be specified for compute, networking, and vault resou
 
 ## SSH Access to the Sync VM
 
-The sync VM runs unattended in a private subnet — SSH is only needed for debugging.
+The sync VM runs unattended in a private subnet — SSH is only needed for debugging. All SSH options are **disabled by default** (`use_bastion_service = false`, `create_bastion_vm = false`) and only enabled when explicitly set.
+
+> **Cloud Shell tip:** If you launch Cloud Shell with [Private Network Access](https://docs.oracle.com/iaas/Content/API/Concepts/cloudshellintro_topic-Cloud_Shell_Networking.htm) connected to the same private subnet as the rclone VM, you can SSH directly with `ssh opc@<private_ip>` — no Bastion Service or bastion VM needed. Set `ssh_public_key_path = "~/.ssh/id_rsa.pub"` in `terraform.tfvars` before deploying so Cloud Shell's key is injected into the VM.
 
 ### Option A — OCI Bastion Service (recommended, no extra VM)
 
