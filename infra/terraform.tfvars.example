@@ -53,8 +53,8 @@ use_bastion_service           = false
 # ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 # Temporary bastion VM for SSH debugging — set false and tofu apply to remove when done
-create_bastion_vm          = true
-existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaaaaaarcjzthn72wml7h736hdfwecnloypk5zjlkn6fnzbdxczpjz3amnq"   # existing public subnet
+# create_bastion_vm          = true
+# existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."   # existing public subnet
 
 # =============================================================================
 # VAULT & SECRETS
