@@ -112,13 +112,17 @@ No extra environment variable is needed — `APIKey` is the default auth method.
 
 **Option B — Use the Cloud Shell session token**
 
-If you prefer not to copy keys, skip Steps 1 and 2 and set this before running `tofu apply`:
+If you prefer not to copy keys, skip Steps 1 and 2. Run these two commands **before** `tofu init` / `tofu plan` / `tofu apply`:
 
 ```bash
+# Required — use Cloud Shell session token instead of API key config
 export TF_VAR_oci_auth=SecurityToken
+
+# Required if you want SSH access to the VM (skip if not needed)
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 ```
 
-The OCI provider will use the active Cloud Shell session token.
+The OCI provider will use the active Cloud Shell session token. The SSH key is injected into the VM and enables direct SSH access from Cloud Shell Private Network or a bastion VM.
 
 #### Step CS-2: Install OpenTofu
 
