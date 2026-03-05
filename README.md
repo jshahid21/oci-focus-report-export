@@ -240,48 +240,65 @@ Set in `terraform.tfvars`:
 ```hcl
 use_bastion_service           = true
 bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP(s)
-ssh_public_key_path           = "~/.ssh/id_rsa.pub"
 ```
+
+No SSH key pre-provisioning needed — OCI Cloud Agent injects a temporary key for the duration of the session.
 
 After `tofu apply`, create a session and connect:
 
 ```bash
-# Step 1 — create session (copy from tofu output bastion_service_session_command)
-SESSION_ID=$(oci bastion session create-managed-ssh \
-  --bastion-id <bastion_service_id> \
-  --target-resource-id <instance_id> \
-  --target-os-username opc \
-  --ssh-public-key-file ~/.ssh/id_rsa.pub \
-  --session-ttl 10800 \
-  --query 'data.id' --raw-output)
+# Step 1 — create session (get the ready-made command from tofu output)
+tofu output bastion_service_session_command
 
-# Step 2 — wait for ACTIVE, then get SSH command
-oci bastion session get --session-id $SESSION_ID \
+# Run the printed command, capture the session OCID, then:
+# Step 2 — wait for ACTIVE (~60 sec), then get the SSH command
+oci bastion session get --session-id <session_ocid> \
   --query 'data."ssh-metadata".command' --raw-output
 ```
 
 Run the printed SSH command replacing `<privateKey>` with `~/.ssh/id_rsa`.
 
-> **Note:** The OCI Cloud Agent Bastion plugin must be **Running** on the VM before sessions connect. It starts automatically within a few minutes of first boot.
+> **Note:** The OCI Cloud Agent Bastion plugin must be **Running** on the VM before sessions connect. It starts automatically within a few minutes of first boot. Check status under the instance's **Oracle Cloud Agent** tab in the OCI Console.
 
 ### Option B — Temporary Bastion VM (for debugging only)
 
-If you have an existing public subnet and want direct SSH access:
+Useful when you need reliable direct SSH access without depending on Cloud Agent. Requires an existing public subnet and an SSH key pair.
 
 ```hcl
 create_bastion_vm          = true
-existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."
+existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."   # your public subnet
 ssh_public_key_path        = "~/.ssh/id_rsa.pub"
 ```
 
-After `tofu apply`, one command connects directly to the rclone VM:
+> If you don't have an SSH key pair, generate one first: `ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""`
+
+After `tofu apply`, one command connects directly to the rclone VM via ProxyJump:
 
 ```bash
 tofu output bastion_vm_ssh_command
-# ssh -J opc@<bastion_public_ip> opc@<rclone_private_ip> -i ~/.ssh/id_rsa
+# Prints: ssh -J opc@<bastion_public_ip> opc@<rclone_private_ip> -i ~/.ssh/id_rsa
 ```
 
-Remove the bastion VM when done: set `create_bastion_vm = false` and run `tofu apply`.
+**Removing the bastion VM when done:**
+
+```hcl
+# In terraform.tfvars — set to false, leave other values in place
+create_bastion_vm = false
+```
+
+```bash
+tofu apply   # destroys only the bastion VM and its NSG, rclone VM is untouched
+```
+
+**Re-adding it later for debugging:**
+
+```hcl
+create_bastion_vm = true   # set back to true, subnet OCID is already saved
+```
+
+```bash
+tofu apply   # recreates the bastion VM in ~60 seconds
+```
 
 > **SSH access is not required** for normal operation — the sync runs unattended and email alerts notify on failure.
 
