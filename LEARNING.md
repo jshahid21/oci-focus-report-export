@@ -679,6 +679,7 @@ oci bastion session create-managed-ssh \
   --bastion-id <bastion_service_id> \
   --target-resource-id <instance_id> \
   --target-os-username opc \
+  --ssh-public-key-file ~/.ssh/id_rsa.pub \
   --session-ttl 10800
 ```
 

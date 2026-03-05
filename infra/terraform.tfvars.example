@@ -48,6 +48,14 @@ existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 use_bastion_service           = false
 # bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
 
+# Optional SSH public key — enables port-forwarding Bastion sessions as a
+# reliable fallback if Managed SSH (Cloud Agent) is slow to start.
+# ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Temporary bastion VM for SSH debugging — set false and tofu apply to remove when done
+create_bastion_vm          = true
+existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaaaaaarcjzthn72wml7h736hdfwecnloypk5zjlkn6fnzbdxczpjz3amnq"   # existing public subnet
+
 # =============================================================================
 # VAULT & SECRETS
 # =============================================================================

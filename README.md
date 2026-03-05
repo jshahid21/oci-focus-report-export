@@ -231,27 +231,59 @@ Different compartments can be specified for compute, networking, and vault resou
 
 ## SSH Access to the Sync VM
 
-The sync VM runs unattended — SSH is only needed for debugging. Use the OCI Bastion Service: managed, serverless SSH with no extra VM, public subnet, or SSH key pre-provisioning required. Oracle Cloud Agent handles the session and key pair on the VM side.
+The sync VM runs unattended in a private subnet — SSH is only needed for debugging.
+
+### Option A — OCI Bastion Service (recommended, no extra VM)
+
+Set in `terraform.tfvars`:
 
 ```hcl
 use_bastion_service           = true
 bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP(s)
+ssh_public_key_path           = "~/.ssh/id_rsa.pub"
 ```
 
-After `tofu apply`, create a session:
+After `tofu apply`, create a session and connect:
 
 ```bash
-# Use the bastion_service_session_command output, or run:
-oci bastion session create-managed-ssh \
-  --bastion-id <bastion_service_id_output> \
-  --target-resource-id <instance_id_output> \
+# Step 1 — create session (copy from tofu output bastion_service_session_command)
+SESSION_ID=$(oci bastion session create-managed-ssh \
+  --bastion-id <bastion_service_id> \
+  --target-resource-id <instance_id> \
   --target-os-username opc \
-  --session-ttl 10800
+  --ssh-public-key-file ~/.ssh/id_rsa.pub \
+  --session-ttl 10800 \
+  --query 'data.id' --raw-output)
+
+# Step 2 — wait for ACTIVE, then get SSH command
+oci bastion session get --session-id $SESSION_ID \
+  --query 'data."ssh-metadata".command' --raw-output
 ```
 
-Then SSH using the session details OCI provides.
+Run the printed SSH command replacing `<privateKey>` with `~/.ssh/id_rsa`.
 
-> **SSH access is not required** if the sync runs unattended and you rely on email alerts for failure notification.
+> **Note:** The OCI Cloud Agent Bastion plugin must be **Running** on the VM before sessions connect. It starts automatically within a few minutes of first boot.
+
+### Option B — Temporary Bastion VM (for debugging only)
+
+If you have an existing public subnet and want direct SSH access:
+
+```hcl
+create_bastion_vm          = true
+existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."
+ssh_public_key_path        = "~/.ssh/id_rsa.pub"
+```
+
+After `tofu apply`, one command connects directly to the rclone VM:
+
+```bash
+tofu output bastion_vm_ssh_command
+# ssh -J opc@<bastion_public_ip> opc@<rclone_private_ip> -i ~/.ssh/id_rsa
+```
+
+Remove the bastion VM when done: set `create_bastion_vm = false` and run `tofu apply`.
+
+> **SSH access is not required** for normal operation — the sync runs unattended and email alerts notify on failure.
 
 ## Quick Start (3 Steps)
 
@@ -308,7 +340,9 @@ sudo tail /var/log/rclone-sync.log
 | Task | Command / Location |
 |------|--------------------|
 | Check sync log | `sudo tail /var/log/rclone-sync.log` (on the VM) |
-| SSH via Bastion Service | `bastion_service_session_command` output after apply |
+| Check bootstrap log | `sudo cat /var/log/cloud-init-bootstrap.log` (on the VM) |
+| SSH via Bastion Service | `tofu output bastion_service_session_command` |
+| SSH via temporary bastion VM | `tofu output bastion_vm_ssh_command` |
 | See cron schedule | `sudo grep rclone /etc/crontab` (on the VM) |
 | Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
 

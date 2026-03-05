@@ -5,6 +5,10 @@ ssh_pwauth: false
 disable_root: true
 package_update: false
 package_upgrade: false
+%{ if ssh_public_key != "" ~}
+ssh_authorized_keys:
+  - ${ssh_public_key}
+%{ endif ~}
 
 write_files:
   - path: /root/.config/rclone/rclone.conf

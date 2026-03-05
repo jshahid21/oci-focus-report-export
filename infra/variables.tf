@@ -160,6 +160,23 @@ variable "bastion_service_allowed_cidrs" {
 }
 
 # -----------------------------------------------------------------------------
+# Temporary Bastion VM (for testing/debugging only — set false when done)
+# A small public VM for direct SSH access to the private sync VM.
+# Remove by setting create_bastion_vm = false and running tofu apply.
+# -----------------------------------------------------------------------------
+variable "create_bastion_vm" {
+  description = "Create a temporary bastion VM in a public subnet for direct SSH debugging access"
+  type        = bool
+  default     = false
+}
+
+variable "existing_bastion_subnet_id" {
+  description = "Existing public subnet OCID to place the bastion VM in (required when create_bastion_vm = true)"
+  type        = string
+  default     = ""
+}
+
+# -----------------------------------------------------------------------------
 # Vault & Keys
 # -----------------------------------------------------------------------------
 variable "create_vault" {
@@ -255,11 +272,23 @@ variable "instance_display_name" {
   default     = "oci-aws-rclone-sync"
 }
 
+variable "instance_hostname_label" {
+  description = "Hostname label for the sync VM VNIC — must be unique within the subnet"
+  type        = string
+  default     = "rclone-sync"
+}
+
 variable "opc_password" {
   description = "Optional password for opc user (Serial Console access). Leave empty to skip."
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "ssh_public_key_path" {
+  description = "Optional path to SSH public key file. When set, the key is injected into the VM and enables port-forwarding Bastion sessions as a reliable SSH fallback."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------

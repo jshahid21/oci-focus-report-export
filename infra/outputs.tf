@@ -18,13 +18,22 @@ output "bastion_service_id" {
 
 output "bastion_service_session_command" {
   description = "OCI CLI command to create a Managed SSH session to the sync VM via Bastion Service"
-  value = var.use_bastion_service ? join(" ", [
+  value = var.use_bastion_service ? join(" \\\n  ", [
     "oci bastion session create-managed-ssh",
-    "--bastion-id", oci_bastion_bastion.this[0].id,
-    "--target-resource-id", oci_core_instance.rclone_sync.id,
+    "--bastion-id ${oci_bastion_bastion.this[0].id}",
+    "--target-resource-id ${oci_core_instance.rclone_sync.id}",
     "--target-os-username opc",
+    "--ssh-public-key-file ~/.ssh/id_rsa.pub",
     "--session-ttl 10800"
   ]) : null
+}
+
+# -----------------------------------------------------------------------------
+# Temporary Bastion VM outputs (create_bastion_vm = true)
+# -----------------------------------------------------------------------------
+output "bastion_vm_ssh_command" {
+  description = "One-command SSH to the rclone VM via the temporary bastion VM"
+  value = var.create_bastion_vm ? "ssh -J opc@${oci_core_instance.bastion_vm[0].public_ip} opc@${oci_core_instance.rclone_sync.private_ip} -i ~/.ssh/id_rsa" : null
 }
 
 # -----------------------------------------------------------------------------

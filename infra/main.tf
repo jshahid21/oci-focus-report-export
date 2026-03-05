@@ -31,6 +31,8 @@ locals {
   object_storage_service = [for s in data.oci_core_services.all.services : s if strcontains(lower(s.name), "object storage")][0]
   object_storage_cidr    = local.object_storage_service.cidr_block
   object_storage_id      = local.object_storage_service.id
+
+  ssh_public_key = var.ssh_public_key_path != "" ? trimspace(file(var.ssh_public_key_path)) : ""
 }
 
 # -----------------------------------------------------------------------------
@@ -150,6 +152,62 @@ resource "oci_core_subnet" "this" {
 
   lifecycle {
     prevent_destroy = true
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Temporary Bastion VM (create_bastion_vm = true for debugging only)
+# -----------------------------------------------------------------------------
+resource "oci_core_instance" "bastion_vm" {
+  count = var.create_bastion_vm ? 1 : 0
+
+  compartment_id      = local.compute_compartment_id
+  availability_domain = local.availability_domain
+  shape               = "VM.Standard.E4.Flex"
+  display_name        = "oci-aws-sync-bastion-temp"
+  preserve_boot_volume = false
+
+  shape_config {
+    ocpus         = 1
+    memory_in_gbs = 2
+  }
+
+  source_details {
+    source_type = "image"
+    source_id   = local.oracle_linux_image_id
+  }
+
+  create_vnic_details {
+    subnet_id        = var.existing_bastion_subnet_id
+    assign_public_ip = true
+    nsg_ids          = []
+  }
+
+  metadata = {
+    ssh_authorized_keys = local.ssh_public_key
+  }
+}
+
+resource "oci_core_network_security_group" "bastion_ssh" {
+  count          = var.create_bastion_vm ? 1 : 0
+  compartment_id = local.network_compartment_id
+  vcn_id         = local.vcn_id
+  display_name   = "oci-aws-sync-bastion-ssh-nsg"
+}
+
+resource "oci_core_network_security_group_security_rule" "bastion_to_rclone_ssh" {
+  count                     = var.create_bastion_vm ? 1 : 0
+  network_security_group_id = oci_core_network_security_group.bastion_ssh[0].id
+  direction                 = "INGRESS"
+  protocol                  = "6"
+  source                    = "0.0.0.0/0"
+  source_type               = "CIDR_BLOCK"
+  stateless                 = false
+  tcp_options {
+    destination_port_range {
+      min = 22
+      max = 22
+    }
   }
 }
 
@@ -283,8 +341,8 @@ resource "oci_core_instance" "rclone_sync" {
     subnet_id              = local.subnet_id
     skip_source_dest_check = false
     assign_public_ip       = false
-    nsg_ids                = []
-    hostname_label         = "rclone-sync"
+    nsg_ids                = var.create_bastion_vm ? [oci_core_network_security_group.bastion_ssh[0].id] : []
+    hostname_label         = var.instance_hostname_label
   }
 
   metadata = {
@@ -292,6 +350,7 @@ resource "oci_core_instance" "rclone_sync" {
       tenancy_ocid             = var.tenancy_ocid
       region                   = var.region
       opc_password             = var.opc_password
+      ssh_public_key           = local.ssh_public_key
       aws_access_key_secret_id = local.aws_access_key_secret_id
       aws_secret_key_secret_id = local.aws_secret_key_secret_id
       aws_s3_bucket_name       = var.aws_s3_bucket_name
