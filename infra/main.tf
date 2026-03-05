@@ -349,7 +349,6 @@ resource "oci_core_instance" "rclone_sync" {
     user_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
       tenancy_ocid             = var.tenancy_ocid
       region                   = var.region
-      opc_password             = var.opc_password
       ssh_public_key           = local.ssh_public_key
       aws_access_key_secret_id = local.aws_access_key_secret_id
       aws_secret_key_secret_id = local.aws_secret_key_secret_id

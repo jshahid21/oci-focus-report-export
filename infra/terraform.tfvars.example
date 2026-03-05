@@ -43,19 +43,20 @@ existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 # Optional — not required if sync runs unattended.
 # =============================================================================
 
-# All SSH options default to false — enable only when needed for debugging.
-# Cloud Shell users: if using Private Network Access on the same subnet,
-# set ssh_public_key_path and SSH directly to the VM's private IP (no bastion needed).
+# SSH options — Bastion Service and bastion VM are off by default.
+# SSH public key is injected by default (~/.ssh/id_rsa.pub) enabling direct SSH
+# access via bastion VM or Cloud Shell Private Network Access.
+# Cloud Shell users: connect Cloud Shell to the same private subnet and SSH
+# directly to the VM's private IP — no bastion needed.
 
-# OCI Bastion Service — managed, keyless SSH; no extra VM needed
+# OCI Bastion Service — managed SSH via Cloud Agent; no extra VM needed
 use_bastion_service           = false   # set true to enable
 # bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
 
-# Optional SSH public key — enables port-forwarding Bastion sessions as a
-# reliable fallback if Managed SSH (Cloud Agent) is slow to start.
+# SSH public key injected into VM by default. Override path if needed.
 # ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
-# Temporary bastion VM for SSH debugging — set false and tofu apply to remove when done
+# Temporary bastion VM for SSH debugging — off by default, remove when done
 # create_bastion_vm          = true
 # existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."   # existing public subnet
 
@@ -95,4 +96,3 @@ alert_email_address = "you@example.com"
 # instance_shape     = "VM.Standard.E4.Flex"   # or A1.Flex for free tier ARM
 # instance_ocpus     = 1
 # instance_memory_gb = 4
-# opc_password       = ""                       # Serial Console access only

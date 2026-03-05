@@ -278,17 +278,10 @@ variable "instance_hostname_label" {
   default     = "rclone-sync"
 }
 
-variable "opc_password" {
-  description = "Optional password for opc user (Serial Console access). Leave empty to skip."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 variable "ssh_public_key_path" {
-  description = "Optional path to SSH public key file. When set, the key is injected into the VM and enables port-forwarding Bastion sessions as a reliable SSH fallback."
+  description = "Path to SSH public key file to inject into the VM. Enables direct SSH access via bastion VM or Cloud Shell private network. Defaults to ~/.ssh/id_rsa.pub."
   type        = string
-  default     = ""
+  default     = "~/.ssh/id_rsa.pub"
 }
 
 # -----------------------------------------------------------------------------

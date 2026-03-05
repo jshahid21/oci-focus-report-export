@@ -85,8 +85,6 @@ write_files:
       cp rclone-*-linux-$${RCLONE_ARCH}/rclone /usr/local/bin/
       chmod 755 /usr/local/bin/rclone
 
-      [ -n "${opc_password}" ] && echo "opc:${opc_password}" | chpasswd
-
       echo "0 */6 * * * root /usr/local/bin/sync.sh >> /var/log/rclone-sync.log 2>&1" >> /etc/crontab
 
       echo "=== Bootstrap done, first sync ==="
