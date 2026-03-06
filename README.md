@@ -26,7 +26,7 @@ Pick your client environment and follow the relevant section:
 | macOS | Steps 1, 2, 3 below |
 | Oracle Linux 8 / 9 | Steps 1, 2, 3 — with different install commands |
 | Windows | Steps 1, 2, 3 — with different install commands and config path |
-| OCI Cloud Shell | **Option A (recommended):** Steps 1, 2 (upload key once, `$HOME` persists), then Step 3. **Option B:** skip Steps 1 & 2, set `TF_VAR_oci_auth=SecurityToken`, then Step 3 |
+| OCI Cloud Shell | Steps CS-1 → CS-6 below (one-time setup, `$HOME` persists across sessions), then Step 3 |
 
 ---
 
@@ -89,42 +89,59 @@ pip install oci-cli
 
 ### OCI Cloud Shell
 
-Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. Follow these steps in order:
+Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. `$HOME` persists across sessions so everything below is a one-time setup. Follow these steps in order:
 
-#### Step CS-1: Set up OCI authentication for OpenTofu
+#### Step CS-1: Generate an API key pair in Cloud Shell
 
-OpenTofu needs an OCI auth method to provision infrastructure — two options are available:
-
-**Option A (Recommended) — Copy your API key config once**
-
-`$HOME` persists across Cloud Shell sessions, so this is a one-time setup. Complete Steps 1 and 2 below on your local machine (or directly in Cloud Shell), then upload the key and config using the Cloud Shell **Upload** button:
-
-- `~/.oci/oci_api_key.pem` — your private key
-- `~/.oci/config` — your OCI config file
-
-Then set permissions:
+The private key is generated directly in Cloud Shell and never leaves it.
 
 ```bash
-chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
+mkdir -p ~/.oci
+openssl genrsa -out ~/.oci/oci_api_key.pem 2048
+chmod 600 ~/.oci/oci_api_key.pem
+openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pem
+cat ~/.oci/oci_api_key_public.pem   # copy this entire output to your clipboard
 ```
 
-No extra environment variable is needed — `APIKey` is the default auth method.
+#### Step CS-2: Upload the public key to the OCI Console
 
-**Option B — Use the Cloud Shell session token**
+1. OCI Console → top-right **Profile → My profile → API keys → Add API key**
+2. Select **Paste a public key**, paste the output from above → **Add**
+3. Copy the config snippet displayed after adding (it contains your fingerprint, user OCID, and tenancy OCID)
 
-If you prefer not to copy keys, skip Steps 1 and 2. Run these two commands **before** `tofu init` / `tofu plan` / `tofu apply`:
+#### Step CS-3: Create the OCI config file
+
+Paste the snippet from the Console into the command below, filling in the real values:
 
 ```bash
-# Required — use Cloud Shell session token instead of API key config
-export TF_VAR_oci_auth=SecurityToken
+cat > ~/.oci/config << 'EOF'
+[DEFAULT]
+user=ocid1.user.oc1..aaaa...
+fingerprint=xx:xx:xx:...
+tenancy=ocid1.tenancy.oc1..aaaa...
+region=us-ashburn-1
+key_file=~/.oci/oci_api_key.pem
+EOF
+chmod 600 ~/.oci/config
+```
 
-# Required if you want SSH access to the VM (skip if not needed)
+Verify it works:
+
+```bash
+oci iam region list
+```
+
+You should see a list of OCI regions. If you get an auth error, double-check the fingerprint and that the public key was uploaded to the correct user.
+
+#### Step CS-4: Generate an SSH key pair
+
+Required if you want to SSH into the sync VM (for verification or debugging). This key is injected into the VM at `tofu apply` time — **if the key does not exist when you run `tofu apply`, SSH will not work and you will need to recreate the VM.**
+
+```bash
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 ```
 
-The OCI provider will use the active Cloud Shell session token. The SSH key is injected into the VM and enables direct SSH access from Cloud Shell Private Network or a bastion VM.
-
-#### Step CS-2: Install OpenTofu
+#### Step CS-5: Install OpenTofu
 
 The `tofu` binary installs to `~/bin`, which persists across sessions:
 
@@ -138,21 +155,21 @@ export PATH="$HOME/bin:$PATH"
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 ```
 
-#### Step CS-3: Download the project files
+#### Step CS-6: Download the project files
 
 ```bash
-curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/main.zip
-unzip main.zip
-cd oci-focus-report-export-main
+curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/feature/private-subnet-bastion-service.zip
+unzip private-subnet-bastion-service.zip
+cd oci-focus-report-export-feature-private-subnet-bastion-service/infra
 ```
 
-For **Option A**, continue to Steps 1 and 2 below, then [Step 3](#step-3-deploy-with-opentofu). For **Option B**, skip ahead directly to [Step 3](#step-3-deploy-with-opentofu).
+OCI authentication is done — skip Steps 1 and 2 below and go directly to [Step 3: Deploy with OpenTofu](#step-3-deploy-with-opentofu).
 
 ---
 
 ### Step 1: Generate an OCI API Key Pair
 
-> **OCI Cloud Shell — Option B only:** Skip this step if using `TF_VAR_oci_auth=SecurityToken`.
+> **OCI Cloud Shell:** Skip this step — authentication is already configured in Steps CS-1 through CS-3 above.
 
 1. Log in to the [OCI Console](https://cloud.oracle.com).
 2. Click your **Profile** icon (top-right) → **My profile** → **API keys** → **Add API key**.
@@ -172,7 +189,7 @@ Upload the contents of `oci_api_key_public.pem` to the OCI Console under **Profi
 
 ### Step 2: Configure the OCI Config File
 
-> **OCI Cloud Shell — Option B only:** Skip this step if using `TF_VAR_oci_auth=SecurityToken`.
+> **OCI Cloud Shell:** Skip this step — authentication is already configured in Steps CS-1 through CS-3 above.
 
 Create (or edit) `~/.oci/config` (macOS / Linux) or `C:\Users\<username>\.oci\config` (Windows) with the values from the OCI Console configuration preview:
 
@@ -237,7 +254,11 @@ Different compartments can be specified for compute, networking, and vault resou
 
 The sync VM runs unattended in a private subnet — SSH is only needed for debugging. All SSH options are **disabled by default** (`use_bastion_service = false`, `create_bastion_vm = false`) and only enabled when explicitly set.
 
-> **Cloud Shell tip:** If you launch Cloud Shell with [Private Network Access](https://docs.oracle.com/iaas/Content/API/Concepts/cloudshellintro_topic-Cloud_Shell_Networking.htm) connected to the same private subnet as the rclone VM, you can SSH directly with `ssh opc@<private_ip>` — no Bastion Service or bastion VM needed. Set `ssh_public_key_path = "~/.ssh/id_rsa.pub"` in `terraform.tfvars` before deploying so Cloud Shell's key is injected into the VM.
+> **Cloud Shell tip:** Connect Cloud Shell to the same private subnet as the rclone VM using [Private Network Access](https://docs.oracle.com/iaas/Content/API/Concepts/cloudshellintro_topic-Cloud_Shell_Networking.htm) (Cloud Shell toolbar → network icon → Ephemeral Private Network Setup). Then SSH directly with `ssh opc@<private_ip> -i ~/.ssh/id_rsa` — no Bastion Service or bastion VM needed.
+>
+> **Required: private subnet SSH ingress rule.** Cloud Shell's Private Network Access assigns it an IP on your subnet. For SSH to reach the VM, the private subnet's security list must allow inbound TCP port 22 from the subnet's own CIDR (e.g. `10.0.1.0/24`). Add this once in OCI Console → Networking → Virtual Cloud Networks → your VCN → your private subnet → Security Lists → Add Ingress Rule (Source CIDR: subnet CIDR, Protocol: TCP, Port: 22).
+>
+> **Required: SSH key injected before deploy.** Generate `~/.ssh/id_rsa` in Cloud Shell before running `tofu apply` (Step CS-4). If the key file didn't exist at apply time, SSH will fail and you must taint and recreate the VM (`tofu taint oci_core_instance.rclone_sync && tofu apply`).
 
 ### Option A — OCI Bastion Service (recommended, no extra VM)
 
@@ -402,6 +423,8 @@ Your IAM user needs S3 access. Example policy (replace `YOUR_BUCKET`):
 
 | Problem | Fix |
 |---------|-----|
+| SSH hangs at `Connecting to <ip> port 22` | Private subnet security list is missing an SSH ingress rule. Add TCP port 22 from the subnet's own CIDR (e.g. `10.0.1.0/24`) in OCI Console → Networking → your VCN → private subnet → Security Lists |
+| `Permission denied (publickey)` on SSH | SSH key was not injected at deploy time. Generate `~/.ssh/id_rsa`, then run `tofu taint oci_core_instance.rclone_sync && tofu apply` to recreate the VM with the key |
 | `directory not found` (bling) | Ensure `no_check_bucket = true` in rclone config; policy includes `read buckets` |
 | `404` (Vault) | Policy needs `use secret-bundles` (not `secrets`) on the compartment |
 | `invalid header` (S3) | Secret may have whitespace; trim on VM or re-store in Vault |

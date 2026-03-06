@@ -53,8 +53,9 @@ existing_service_gateway_id = "ocid1.servicegateway.oc1..aaaa..."
 use_bastion_service           = false   # set true to enable
 # bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # restrict to your IP(s)
 
-# SSH public key injected into VM by default. Override path if needed.
-# ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# SSH public key injected into VM. Generate this key BEFORE running tofu apply.
+# Cloud Shell: ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 # Temporary bastion VM for SSH debugging — off by default, remove when done
 # create_bastion_vm          = true

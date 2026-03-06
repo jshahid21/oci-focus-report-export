@@ -85,6 +85,7 @@ terraform {
 
 ```hcl
 provider "oci" {
+  auth                = var.oci_auth
   config_file_profile = "DEFAULT"
   region              = var.region
 }
@@ -93,7 +94,8 @@ provider "oci" {
 | Line | Explanation |
 |------|-------------|
 | `provider "oci"` | Configures the OCI provider. |
-| `config_file_profile = "DEFAULT"` | Use the DEFAULT profile from `~/.oci/config` (your API keys). |
+| `auth = var.oci_auth` | Auth method — `"APIKey"` (default, reads `~/.oci/config`). Set `TF_VAR_oci_auth=SecurityToken` to override. |
+| `config_file_profile = "DEFAULT"` | Use the DEFAULT profile from `~/.oci/config`. Required for both APIKey and SecurityToken. |
 | `region = var.region` | OCI region from `var.region` (e.g. `us-ashburn-1`). |
 
 Conceptually: OpenTofu runs on your machine and uses your OCI config to talk to Oracle Cloud. The VM itself uses Instance Principal later and never sees these credentials.

@@ -19,6 +19,6 @@ variable "oci_auth" {
 
 provider "oci" {
   auth                = var.oci_auth
-  config_file_profile = var.oci_auth == "APIKey" ? "DEFAULT" : null
+  config_file_profile = "DEFAULT"
   region              = var.region
 }
