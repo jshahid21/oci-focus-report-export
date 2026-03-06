@@ -6,92 +6,17 @@ Syncs Oracle Cloud (OCI) cost and usage reports to an AWS S3 bucket. Runs automa
 
 | Requirement | Purpose |
 |-------------|---------|
-| **OpenTofu** | `brew install opentofu` (Mac) or [opentofu.org](https://opentofu.org/docs/intro/install/) |
-| **OCI account** | API key in `~/.oci/config` (for `tofu apply` only — see Prerequisites section below) |
-| **OCI compartment** | Where the sync VM and supporting resources will live |
-| **OCI private subnet** | Existing private subnet with NAT Gateway and Service Gateway in its route table, **or** let OpenTofu create them |
+| **OCI account** | Compartment, VCN, private subnet with NAT + Service Gateway |
 | **AWS IAM user** | Access Key + Secret Key with S3 write permission |
 | **AWS S3 bucket** | Destination bucket for OCI cost reports |
 
-## Prerequisites & OCI Authentication
-
-Before running `tofu apply`, OpenTofu needs to authenticate with OCI from your local machine. This is a one-time setup.
-
-> **Security note:** This API key is used exclusively by OpenTofu on your workstation to provision infrastructure (VMs, IAM policies, Vault secrets, etc.). Once deployed, the VM itself never uses an API key — it authenticates via **Instance Principals**, a keyless mechanism native to OCI. No credentials are stored in or passed to the cloud environment.
-
-Pick your client environment and follow the relevant section:
-
-| Environment | Steps required |
-|-------------|---------------|
-| macOS | Steps 1, 2, 3 below |
-| Oracle Linux 8 / 9 | Steps 1, 2, 3 — with different install commands |
-| Windows | Steps 1, 2, 3 — with different install commands and config path |
-| OCI Cloud Shell | Steps CS-1 → CS-6 below (one-time setup, `$HOME` persists across sessions), then Step 3 |
-
 ---
 
-### macOS
+## Setup — OCI Cloud Shell
 
-**Install OpenTofu:**
+`$HOME` persists across Cloud Shell sessions so this is a one-time setup. Follow these steps in order.
 
-```bash
-brew install opentofu
-```
-
-**Install OCI CLI** (needed for the verification step):
-
-```bash
-brew install oci-cli
-```
-
----
-
-### Oracle Linux 8 / 9
-
-**Install OpenTofu:**
-
-```bash
-sudo dnf install -y yum-utils
-sudo yum-config-manager --add-repo https://packages.opentofu.org/opentofu/tofu/rpm_any/rpm_any.repo
-sudo dnf install -y tofu
-```
-
-**Install OCI CLI:**
-
-```bash
-sudo dnf install -y python3-pip
-pip3 install oci-cli
-```
-
----
-
-### Windows
-
-**Install OpenTofu** — run in PowerShell:
-
-```powershell
-winget install OpenTofu.OpenTofu
-```
-
-Or download the MSI installer from [opentofu.org/docs/intro/install](https://opentofu.org/docs/intro/install/).
-
-**Install OCI CLI** — requires [Python from python.org](https://www.python.org/downloads/), then:
-
-```powershell
-pip install oci-cli
-```
-
-**Note on key generation:** Skip the `openssl` terminal commands below. On Windows, use the OCI Console to generate and download the key pair directly (Profile → My profile → API keys → Add API key → Generate API key pair). This is the simplest approach.
-
-**Config file path on Windows:** The OCI config lives at `C:\Users\<username>\.oci\config` instead of `~/.oci/config`. The format is identical. No `chmod` is needed — Windows handles file permissions differently.
-
----
-
-### OCI Cloud Shell
-
-Cloud Shell is pre-authenticated as your OCI Console user and the OCI CLI is pre-installed. `$HOME` persists across sessions so everything below is a one-time setup. Follow these steps in order:
-
-#### Step CS-1: Generate an API key pair in Cloud Shell
+### Step 1: Generate an API key pair in Cloud Shell
 
 The private key is generated directly in Cloud Shell and never leaves it.
 
@@ -103,13 +28,13 @@ openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pe
 cat ~/.oci/oci_api_key_public.pem   # copy this entire output to your clipboard
 ```
 
-#### Step CS-2: Upload the public key to the OCI Console
+### Step 2: Upload the public key to the OCI Console
 
 1. OCI Console → top-right **Profile → My profile → API keys → Add API key**
 2. Select **Paste a public key**, paste the output from above → **Add**
 3. Copy the config snippet displayed after adding (it contains your fingerprint, user OCID, and tenancy OCID)
 
-#### Step CS-3: Create the OCI config file
+### Step 3: Create the OCI config file
 
 Paste the snippet from the Console into the command below, filling in the real values:
 
@@ -131,17 +56,15 @@ Verify it works:
 oci iam region list
 ```
 
-You should see a list of OCI regions. If you get an auth error, double-check the fingerprint and that the public key was uploaded to the correct user.
+### Step 4: Generate an SSH key pair
 
-#### Step CS-4: Generate an SSH key pair
-
-Required if you want to SSH into the sync VM (for verification or debugging). This key is injected into the VM at `tofu apply` time — **if the key does not exist when you run `tofu apply`, SSH will not work and you will need to recreate the VM.**
+Required to SSH into the sync VM. This key is injected into the VM at deploy time — **generate it before running `tofu apply`.**
 
 ```bash
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 ```
 
-#### Step CS-5: Install OpenTofu
+### Step 5: Install OpenTofu
 
 The `tofu` binary installs to `~/bin`, which persists across sessions:
 
@@ -155,86 +78,34 @@ export PATH="$HOME/bin:$PATH"
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 ```
 
-#### Step CS-6: Download the project files
+### Step 6: Download the project files
 
 ```bash
-curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/feature/private-subnet-bastion-service.zip
-unzip private-subnet-bastion-service.zip
-cd oci-focus-report-export-feature-private-subnet-bastion-service/infra
+curl -sLO https://github.com/jshahid21/oci-focus-report-export/archive/refs/heads/main.zip
+unzip main.zip
+cd oci-focus-report-export-main/infra
 ```
 
-OCI authentication is done — skip Steps 1 and 2 below and go directly to [Step 3: Deploy with OpenTofu](#step-3-deploy-with-opentofu).
-
----
-
-### Step 1: Generate an OCI API Key Pair
-
-> **OCI Cloud Shell:** Skip this step — authentication is already configured in Steps CS-1 through CS-3 above.
-
-1. Log in to the [OCI Console](https://cloud.oracle.com).
-2. Click your **Profile** icon (top-right) → **My profile** → **API keys** → **Add API key**.
-3. Select **Generate API key pair**, download both the private and public keys, then click **Add**.
-4. OCI will display a configuration preview — keep this open for the next step.
-
-Alternatively (macOS / Linux only), generate the key pair from your terminal:
+### Step 7: Configure and deploy
 
 ```bash
-mkdir -p ~/.oci
-openssl genrsa -out ~/.oci/oci_api_key.pem 2048
-chmod 600 ~/.oci/oci_api_key.pem
-openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pem
-```
-
-Upload the contents of `oci_api_key_public.pem` to the OCI Console under **Profile → API keys**.
-
-### Step 2: Configure the OCI Config File
-
-> **OCI Cloud Shell:** Skip this step — authentication is already configured in Steps CS-1 through CS-3 above.
-
-Create (or edit) `~/.oci/config` (macOS / Linux) or `C:\Users\<username>\.oci\config` (Windows) with the values from the OCI Console configuration preview:
-
-```ini
-[DEFAULT]
-user=ocid1.user.oc1..aaaa<your_user_ocid>
-fingerprint=aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
-tenancy=ocid1.tenancy.oc1..aaaa<your_tenancy_ocid>
-region=us-ashburn-1
-key_file=~/.oci/oci_api_key.pem
-```
-
-| Field | Where to find it |
-|-------|-----------------|
-| `user` | Profile → My profile → OCID |
-| `fingerprint` | Shown after uploading the public key |
-| `tenancy` | Profile → Tenancy → OCID |
-| `region` | Top-right region selector (e.g. `us-ashburn-1`) |
-| `key_file` | Path to your downloaded/generated private key |
-
-On macOS / Linux, set the correct permissions:
-
-```bash
-chmod 600 ~/.oci/config
-```
-
-Verify authentication is working:
-
-```bash
-oci iam region list
-```
-
-You should see a list of OCI regions. If you get an authentication error, double-check the `fingerprint` and `key_file` path.
-
-### Step 3: Deploy with OpenTofu
-
-With authentication confirmed, deploy the full stack:
-
-```bash
-cd infra
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your OCI and AWS values
 tofu init
 tofu apply
 ```
+
+Open `terraform.tfvars` and fill in:
+
+- `region`, `tenancy_ocid`, `existing_compartment_id` — from your OCI Console
+- Networking: set existing resource OCIDs or flip `create_*` flags to `true`
+- `aws_s3_bucket_name`, `aws_region` — your S3 destination bucket
+- **AWS credentials (choose one):**
+  - **Let OpenTofu create Vault secrets:** set `create_aws_secrets = true`, `create_vault = true` (or `existing_vault_id`), `create_key = true` (or `existing_key_id`), then fill in `aws_access_key` and `aws_secret_key`
+  - **Use existing Vault secrets:** set `create_aws_secrets = false`, fill in `existing_aws_access_key_secret_id` and `existing_aws_secret_key_secret_id` with the Vault secret OCIDs
+- `alert_email_address` — email alerts on bootstrap or sync failure
+
+Type `yes` when prompted. Wait ~10 minutes for the VM to bootstrap and run its first sync.
 
 ---
 
@@ -250,17 +121,23 @@ The sync VM is always placed in a **private subnet** with no public IP. It reach
 
 Different compartments can be specified for compute, networking, and vault resources using the optional `compute_compartment_id`, `network_compartment_id`, and `vault_compartment_id` variables. All default to `existing_compartment_id` when left empty.
 
+---
+
 ## SSH Access to the Sync VM
 
-The sync VM runs unattended in a private subnet — SSH is only needed for debugging. All SSH options are **disabled by default** (`use_bastion_service = false`, `create_bastion_vm = false`) and only enabled when explicitly set.
+The sync VM runs unattended in a private subnet — SSH is only needed for debugging. All SSH options are **disabled by default** and only enabled when explicitly set.
 
-> **Cloud Shell tip:** Connect Cloud Shell to the same private subnet as the rclone VM using [Private Network Access](https://docs.oracle.com/iaas/Content/API/Concepts/cloudshellintro_topic-Cloud_Shell_Networking.htm) (Cloud Shell toolbar → network icon → Ephemeral Private Network Setup). Then SSH directly with `ssh opc@<private_ip> -i ~/.ssh/id_rsa` — no Bastion Service or bastion VM needed.
->
-> **Required: private subnet SSH ingress rule.** Cloud Shell's Private Network Access assigns it an IP on your subnet. For SSH to reach the VM, the private subnet's security list must allow inbound TCP port 22 from the subnet's own CIDR (e.g. `10.0.1.0/24`). Add this once in OCI Console → Networking → Virtual Cloud Networks → your VCN → your private subnet → Security Lists → Add Ingress Rule (Source CIDR: subnet CIDR, Protocol: TCP, Port: 22).
->
-> **Required: SSH key injected before deploy.** Generate `~/.ssh/id_rsa` in Cloud Shell before running `tofu apply` (Step CS-4). If the key file didn't exist at apply time, SSH will fail and you must taint and recreate the VM (`tofu taint oci_core_instance.rclone_sync && tofu apply`).
+### Option A — Cloud Shell Private Network Access (simplest)
 
-### Option A — OCI Bastion Service (recommended, no extra VM)
+Connect Cloud Shell to the same private subnet using the network icon in the Cloud Shell toolbar → **Ephemeral Private Network Setup**. Then SSH directly — no Bastion Service or bastion VM needed:
+
+```bash
+ssh opc@<instance_private_ip> -i ~/.ssh/id_rsa
+```
+
+> **Required: private subnet SSH ingress rule.** Add this once in OCI Console → Networking → your VCN → private subnet → Security Lists → Add Ingress Rule: Source CIDR = subnet CIDR (e.g. `10.0.1.0/24`), Protocol TCP, Port 22.
+
+### Option B — OCI Bastion Service (no extra VM)
 
 Set in `terraform.tfvars`:
 
@@ -269,115 +146,56 @@ use_bastion_service           = true
 bastion_service_allowed_cidrs = ["203.0.113.10/32"]   # your IP(s)
 ```
 
-No SSH key pre-provisioning needed — OCI Cloud Agent injects a temporary key for the duration of the session.
-
 After `tofu apply`, create a session and connect:
 
 ```bash
-# Step 1 — create session (get the ready-made command from tofu output)
+# Get the ready-made session creation command
 tofu output bastion_service_session_command
 
-# Run the printed command, capture the session OCID, then:
-# Step 2 — wait for ACTIVE (~60 sec), then get the SSH command
+# Run the printed command, capture the session OCID, then wait ~60s:
 oci bastion session get --session-id <session_ocid> \
   --query 'data."ssh-metadata".command' --raw-output
 ```
 
-Run the printed SSH command replacing `<privateKey>` with `~/.ssh/id_rsa`.
+> **Note:** The OCI Cloud Agent Bastion plugin must be **Running** on the VM before sessions connect. It starts automatically within a few minutes of first boot.
 
-> **Note:** The OCI Cloud Agent Bastion plugin must be **Running** on the VM before sessions connect. It starts automatically within a few minutes of first boot. Check status under the instance's **Oracle Cloud Agent** tab in the OCI Console.
+### Option C — Temporary Bastion VM (for debugging only)
 
-### Option B — Temporary Bastion VM (for debugging only)
-
-Useful when you need reliable direct SSH access without depending on Cloud Agent. Requires an existing public subnet and an SSH key pair.
+Requires an existing public subnet. Add to `terraform.tfvars`:
 
 ```hcl
 create_bastion_vm          = true
-existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."   # your public subnet
-ssh_public_key_path        = "~/.ssh/id_rsa.pub"
+existing_bastion_subnet_id = "ocid1.subnet.oc1.iad.aaaa..."
 ```
 
-> If you don't have an SSH key pair, generate one first: `ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""`
-
-After `tofu apply`, one command connects directly to the rclone VM via ProxyJump:
+After `tofu apply`:
 
 ```bash
 tofu output bastion_vm_ssh_command
 # Prints: ssh -J opc@<bastion_public_ip> opc@<rclone_private_ip> -i ~/.ssh/id_rsa
 ```
 
-**Removing the bastion VM when done:**
-
-```hcl
-# In terraform.tfvars — set to false, leave other values in place
-create_bastion_vm = false
-```
-
-```bash
-tofu apply   # destroys only the bastion VM and its NSG, rclone VM is untouched
-```
-
-**Re-adding it later for debugging:**
-
-```hcl
-create_bastion_vm = true   # set back to true, subnet OCID is already saved
-```
-
-```bash
-tofu apply   # recreates the bastion VM in ~60 seconds
-```
+**Remove when done** — set `create_bastion_vm = false` and run `tofu apply`. The rclone VM is untouched.
 
 > **SSH access is not required** for normal operation — the sync runs unattended and email alerts notify on failure.
 
-## Quick Start (3 Steps)
-
-### 1. Copy and edit the config file
-
-```bash
-cd infra
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Open `terraform.tfvars` and fill in:
-
-- `region`, `tenancy_ocid`, `existing_compartment_id` — from your OCI console
-- Networking: set existing resource OCIDs or flip `create_*` flags to `true`
-- `aws_s3_bucket_name`, `aws_region` — your S3 destination bucket
-- **AWS credentials (choose one):**
-  - **Let OpenTofu create Vault secrets:** set `create_aws_secrets = true`, `create_vault = true` (or `existing_vault_id`), `create_key = true` (or `existing_key_id`), then fill in `aws_access_key` and `aws_secret_key`
-  - **Use existing Vault secrets:** set `create_aws_secrets = false`, fill in `existing_aws_access_key_secret_id` and `existing_aws_secret_key_secret_id` with the Vault secret OCIDs
-- `alert_email_address` — email alerts on bootstrap or sync failure
-
-### 2. Run the setup
-
-```bash
-tofu init
-tofu apply
-```
-
-Type `yes` when prompted. Wait a few minutes for the VM to bootstrap.
-
-### 3. Verify
-
-SSH in via your chosen access method and run:
-
-```bash
-sudo tail /var/log/rclone-sync.log
-```
+---
 
 ## How It Works
 
-1. **OCI**: A VM runs in your compartment. No OCI API keys on the VM—it uses Instance Principal.
+1. **OCI**: A VM runs in your compartment. No OCI API keys on the VM — it uses Instance Principal.
 2. **Vault**: Your AWS keys are stored in OCI Vault. The VM retrieves them at sync time.
 3. **Cron**: Every 6 hours, the VM syncs OCI cost reports (bling namespace) to your S3 bucket.
 
 ## Security (Financial Data)
 
-- **VM**: No AWS keys on disk; keys are fetched from OCI Vault at sync time (memory only). OCI uses Instance Principal—no API keys on the VM.
+- **VM**: No AWS keys on disk; keys are fetched from OCI Vault at sync time (memory only). OCI uses Instance Principal — no API keys on the VM.
 - **Transit**: rclone uses HTTPS for OCI Object Storage and S3.
 - **OCI Vault**: AWS keys are encrypted at rest with KMS.
 
-**Important:** Terraform state (`terraform.tfstate`) and `terraform.tfvars` can contain plaintext AWS credentials. Both are gitignored. Restrict filesystem access to the `infra/` directory and never commit these files. See [ARCHITECTURE.md](ARCHITECTURE.md#8-security-details) for details.
+**Important:** `terraform.tfstate` and `terraform.tfvars` can contain plaintext AWS credentials. Both are gitignored. Never commit these files.
+
+---
 
 ## Common Tasks
 
@@ -385,21 +203,23 @@ sudo tail /var/log/rclone-sync.log
 |------|--------------------|
 | Check sync log | `sudo tail /var/log/rclone-sync.log` (on the VM) |
 | Check bootstrap log | `sudo cat /var/log/cloud-init-bootstrap.log` (on the VM) |
-| SSH via Bastion Service | `tofu output bastion_service_session_command` |
-| SSH via temporary bastion VM | `tofu output bastion_vm_ssh_command` |
 | See cron schedule | `sudo grep rclone /etc/crontab` (on the VM) |
 | Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
+| SSH via Bastion Service | `tofu output bastion_service_session_command` |
+| SSH via temporary bastion VM | `tofu output bastion_vm_ssh_command` |
+
+---
 
 ## Alerts
 
 When `enable_monitoring = true` and `alert_email_address` is set, you get email alerts for:
 
-- **Bootstrap failure** — dnf, rclone install, or first sync failed at VM boot. Check `/var/log/cloud-init-bootstrap.log`.
-- **Sync failure** — credential fetch, rclone, or cron run failed. Check `/var/log/rclone-sync.log`.
+- **Bootstrap failure** — install or first sync failed at VM boot. Check `/var/log/cloud-init-bootstrap.log`.
+- **Sync failure** — credential fetch or rclone failed. Check `/var/log/rclone-sync.log`.
 
-**First-time setup:** OCI sends a confirmation email for the subscription. Click the link to activate alerts.
+**First-time setup:** OCI sends a confirmation email — click the link to activate alerts.
 
-**Test alert** (on VM): `oci ons message publish --topic-id <topic_ocid> --body "Test" --auth instance_principal`
+---
 
 ## AWS IAM Policy
 
@@ -419,12 +239,14 @@ Your IAM user needs S3 access. Example policy (replace `YOUR_BUCKET`):
 }
 ```
 
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| SSH hangs at `Connecting to <ip> port 22` | Private subnet security list is missing an SSH ingress rule. Add TCP port 22 from the subnet's own CIDR (e.g. `10.0.1.0/24`) in OCI Console → Networking → your VCN → private subnet → Security Lists |
-| `Permission denied (publickey)` on SSH | SSH key was not injected at deploy time. Generate `~/.ssh/id_rsa`, then run `tofu taint oci_core_instance.rclone_sync && tofu apply` to recreate the VM with the key |
+| SSH hangs at `Connecting to <ip> port 22` | Private subnet security list is missing an SSH ingress rule. Add TCP port 22 from the subnet's own CIDR in OCI Console → Networking → your VCN → private subnet → Security Lists |
+| `Permission denied (publickey)` on SSH | SSH key was not injected at deploy time. Generate `~/.ssh/id_rsa`, then run `tofu taint oci_core_instance.rclone_sync && tofu apply` |
 | `directory not found` (bling) | Ensure `no_check_bucket = true` in rclone config; policy includes `read buckets` |
 | `404` (Vault) | Policy needs `use secret-bundles` (not `secrets`) on the compartment |
 | `invalid header` (S3) | Secret may have whitespace; trim on VM or re-store in Vault |
@@ -439,4 +261,3 @@ Your IAM user needs S3 access. Example policy (replace `YOUR_BUCKET`):
 - **Cron**: Every 6 hours (`0 */6 * * *`). Logs append to `/var/log/rclone-sync.log`.
 
 **Maintainers:** See [ARCHITECTURE.md](ARCHITECTURE.md) for a file-by-file breakdown of components, maintenance tasks, and security details.
-
