@@ -58,7 +58,7 @@ oci iam region list
 
 ### Step 4: Generate an SSH key pair
 
-Required to SSH into the sync VM. This key is injected into the VM at deploy time — **generate it before running `tofu apply`.**
+The default config injects `~/.ssh/id_rsa.pub` into the VM automatically — **this file must exist before you run `tofu apply`**. If it doesn't exist at deploy time, no key is injected and SSH will not work (you would need to recreate the VM to fix it).
 
 ```bash
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
