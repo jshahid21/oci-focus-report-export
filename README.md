@@ -207,6 +207,25 @@ tofu output bastion_vm_ssh_command
 | Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
 | SSH via Bastion Service | `tofu output bastion_service_session_command` |
 | SSH via temporary bastion VM | `tofu output bastion_vm_ssh_command` |
+| Rebuild VM after script change | `tofu apply -replace=oci_core_instance.rclone_sync` |
+
+### Updating the rclone sync command
+
+The sync script (`/usr/local/bin/sync.sh`) is generated from `cloud-init.yaml` at VM creation time and is **not updated on a running VM**. To change the rclone command (e.g. add filters, change flags):
+
+1. Edit the rclone line in `infra/cloud-init.yaml`
+2. Verify the filter syntax against the live source structure:
+   ```bash
+   sudo RCLONE_CONFIG=/root/.config/rclone/rclone.conf \
+     OCI_CLI_AUTH=instance_principal \
+     /usr/local/bin/rclone lsd oci_usage:<tenancy_ocid> --max-depth 5
+   ```
+3. Rebuild the VM to apply the change:
+   ```bash
+   tofu apply -replace=oci_core_instance.rclone_sync
+   ```
+
+This replaces only the sync VM — all other resources (VCN, Vault, secrets, IAM) are untouched. The new VM bootstraps in ~10 minutes and runs its first sync automatically.
 
 ---
 
