@@ -207,7 +207,7 @@ tofu output bastion_vm_ssh_command
 | Run sync manually | `sudo /usr/local/bin/sync.sh` (on the VM) |
 | SSH via Bastion Service | `tofu output bastion_service_session_command` |
 | SSH via temporary bastion VM | `tofu output bastion_vm_ssh_command` |
-| Rebuild VM after script change | `tofu apply -replace=oci_core_instance.rclone_sync` |
+| Rebuild VM (apply cloud-init changes) | `tofu apply -replace=oci_core_instance.rclone_sync` |
 
 ### Updating the rclone sync command
 
@@ -265,7 +265,7 @@ Your IAM user needs S3 access. Example policy (replace `YOUR_BUCKET`):
 | Problem | Fix |
 |---------|-----|
 | SSH hangs at `Connecting to <ip> port 22` | Private subnet security list is missing an SSH ingress rule. Add TCP port 22 from the subnet's own CIDR in OCI Console → Networking → your VCN → private subnet → Security Lists |
-| `Permission denied (publickey)` on SSH | SSH key was not injected at deploy time. Generate `~/.ssh/id_rsa`, then run `tofu taint oci_core_instance.rclone_sync && tofu apply` |
+| `Permission denied (publickey)` on SSH | SSH key was not injected at deploy time. Generate `~/.ssh/id_rsa`, then run `tofu apply -replace=oci_core_instance.rclone_sync` |
 | `directory not found` (bling) | Ensure `no_check_bucket = true` in rclone config; policy includes `read buckets` |
 | `404` (Vault) | Policy needs `use secret-bundles` (not `secrets`) on the compartment |
 | `invalid header` (S3) | Secret may have whitespace; trim on VM or re-store in Vault |
